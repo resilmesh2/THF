@@ -82,7 +82,7 @@ async def startup_event():
         
         # Initialize agent with configuration
         agent = WazuhSecurityAgent(
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             opensearch_config={
                 "host": os.getenv("OPENSEARCH_HOST", "localhost"),
                 "port": int(os.getenv("OPENSEARCH_PORT", "9200")),

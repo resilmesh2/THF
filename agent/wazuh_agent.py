@@ -4,7 +4,7 @@ Wazuh Security Agent using LangChain
 from langchain.agents import initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
 from langchain.callbacks import LangChainTracer
-from langchain.chat_models import ChatOpenAI
+from langchain.chat_models import ChatAnthropic
 from typing import Dict, Any, Optional
 import structlog
 import os
@@ -19,26 +19,26 @@ class WazuhSecurityAgent:
     LangChain-based security agent for Wazuh SIEM
     """
     
-    def __init__(self, openai_api_key: str, opensearch_config: Dict[str, Any]):
+    def __init__(self, anthropic_api_key: str, opensearch_config: Dict[str, Any]):
         """
         Initialize the Wazuh security agent
         
         Args:
-            openai_api_key: OpenAI API key
+            anthropic_api_key: Anthropic API key
             opensearch_config: OpenSearch connection configuration
         """
-        self.openai_api_key = openai_api_key
+        self.anthropic_api_key = anthropic_api_key
         self.opensearch_config = opensearch_config
         
         # Initialize OpenSearch client
         self.opensearch_client = WazuhOpenSearchClient(**opensearch_config)
         
         # Initialize LLM
-        self.llm = ChatOpenAI(
-            model="gpt-4",
+        self.llm = ChatAnthropic(
+            model="claude-3-5-sonnet-20241022",
             temperature=0.1,
-            openai_api_key=openai_api_key,
-            request_timeout=60
+            anthropic_api_key=anthropic_api_key,
+            max_tokens=4000
         )
         
         # Initialize tools
@@ -99,7 +99,7 @@ class WazuhSecurityAgent:
         
         logger.info("Wazuh Security Agent initialized", 
                    tools_count=len(self.tools),
-                   model="gpt-4")
+                   model="claude-3-5-sonnet")
     
     async def query(self, user_input: str) -> str:
         """
@@ -193,7 +193,7 @@ class WazuhSecurityAgent:
             Dictionary with system information
         """
         return {
-            "model": "gpt-4",
+            "model": "claude-3-5-sonnet",
             "tools_available": len(self.tools),
             "tool_names": [tool.name for tool in self.tools],
             "opensearch_host": self.opensearch_config.get("host"),
