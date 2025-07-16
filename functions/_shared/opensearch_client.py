@@ -65,9 +65,9 @@ class WazuhOpenSearchClient:
         try:
             query['size'] = size
             
-            logger.debug("Executing search query", 
-                        index=index, 
-                        query_type=query.get('query', {}).get('bool', {}).get('must', []))
+            logger.debug("Executing search query",
+                         index=index,
+                         query_type=query.get('query', {}).get('bool', {}).get('must', []))
             
             response = await self.client.search(
                 index=index,
@@ -80,18 +80,18 @@ class WazuhOpenSearchClient:
             else:
                 total_count = hits_total
                 
-            logger.info("Search query executed successfully", 
-                       index=index, 
-                       hits=total_count,
-                       returned=len(response.get('hits', {}).get('hits', [])))
+            logger.info("Search query executed successfully",
+                        index=index,
+                        hits=total_count,
+                        returned=len(response.get('hits', {}).get('hits', [])))
             
             return response
             
         except Exception as e:
-            logger.error("Search query failed", 
-                        error=str(e), 
-                        index=index,
-                        query=query)
+            logger.error("Search query failed",
+                         error=str(e),
+                         index=index,
+                         query=query)
             raise
 
     async def count(self, index: str, query: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,16 +111,16 @@ class WazuhOpenSearchClient:
                 body=query
             )
             
-            logger.info("Count query executed", 
-                       index=index, 
-                       count=response.get('count', 0))
+            logger.info("Count query executed",
+                        index=index,
+                        count=response.get('count', 0))
             
             return response
             
         except Exception as e:
-            logger.error("Count query failed", 
-                        error=str(e), 
-                        index=index)
+            logger.error("Count query failed",
+                         error=str(e),
+                         index=index)
             raise
 
     async def get_indices(self) -> List[str]:

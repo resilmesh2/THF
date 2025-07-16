@@ -10,12 +10,14 @@ from schemas.wazuh_schemas import *
 
 logger = structlog.get_logger()
 
+
 class WazuhBaseTool(BaseTool):
     """Base class for all Wazuh tools"""
     
     def __init__(self, opensearch_client):
         super().__init__()
         self.opensearch_client = opensearch_client
+
 
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
@@ -60,6 +62,7 @@ class AnalyzeAlertsTool(WazuhBaseTool):
         except Exception as e:
             logger.error("Alert analysis failed", action=action, error=str(e))
             raise Exception(f"Alert analysis failed: {str(e)}")
+
 
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
@@ -106,6 +109,7 @@ class InvestigateEntityTool(WazuhBaseTool):
                         error=str(e))
             raise Exception(f"Entity investigation failed: {str(e)}")
 
+
 class MapRelationshipsTool(WazuhBaseTool):
     """Tool for mapping relationships between entities"""
     name: str = "map_relationships"
@@ -149,6 +153,7 @@ class MapRelationshipsTool(WazuhBaseTool):
                         error=str(e))
             raise Exception(f"Relationship mapping failed: {str(e)}")
 
+
 class DetectThreatsTool(WazuhBaseTool):
     """Tool for detecting threats and MITRE ATT&CK techniques"""
     name: str = "detect_threats"
@@ -189,6 +194,7 @@ class DetectThreatsTool(WazuhBaseTool):
                         error=str(e))
             raise Exception(f"Threat detection failed: {str(e)}")
 
+
 class FindAnomaliesTool(WazuhBaseTool):
     """Tool for finding anomalies in security data"""
     name: str = "find_anomalies"
@@ -228,6 +234,7 @@ class FindAnomaliesTool(WazuhBaseTool):
                         anomaly_type=anomaly_type, 
                         error=str(e))
             raise Exception(f"Anomaly detection failed: {str(e)}")
+
 
 class TraceTimelineTool(WazuhBaseTool):
     """Tool for reconstructing event timelines"""
@@ -272,6 +279,7 @@ class TraceTimelineTool(WazuhBaseTool):
                         error=str(e))
             raise Exception(f"Timeline reconstruction failed: {str(e)}")
 
+
 class CheckVulnerabilitiesTool(WazuhBaseTool):
     """Tool for checking vulnerabilities"""
     name: str = "check_vulnerabilities"
@@ -307,6 +315,7 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
             logger.error("Vulnerability checking failed", error=str(e))
             raise Exception(f"Vulnerability checking failed: {str(e)}")
 
+
 class MonitorAgentsTool(WazuhBaseTool):
     """Tool for monitoring Wazuh agents"""
     name: str = "monitor_agents"
@@ -339,6 +348,7 @@ class MonitorAgentsTool(WazuhBaseTool):
         except Exception as e:
             logger.error("Agent monitoring failed", error=str(e))
             raise Exception(f"Agent monitoring failed: {str(e)}")
+
 
 def get_all_tools(opensearch_client):
     """
