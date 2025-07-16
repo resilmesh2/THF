@@ -7,6 +7,7 @@ from .._shared.opensearch_client import WazuhOpenSearchClient
 
 logger = structlog.get_logger()
 
+
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get alerts associated with a specific entity
@@ -27,10 +28,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         if not entity_id:
             raise ValueError("entity_id is required")
         
-        logger.info("Getting alerts for entity", 
-                   entity_type=entity_type, 
-                   entity_id=entity_id, 
-                   time_range=time_range)
+        logger.info("Getting alerts for entity",
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    time_range=time_range)
         
         # Build entity query
         entity_query = opensearch_client.build_entity_query(entity_type, entity_id)
@@ -159,18 +160,19 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             }
         }
         
-        logger.info("Entity alert investigation completed", 
-                   entity_type=entity_type,
-                   entity_id=entity_id,
-                   total_alerts=total_alerts)
+        logger.info("Entity alert investigation completed",
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    total_alerts=total_alerts)
         
         return result
         
     except Exception as e:
-        logger.error("Entity alert investigation failed", 
-                    error=str(e), 
-                    params=params)
+        logger.error("Entity alert investigation failed",
+                     error=str(e),
+                     params=params)
         raise Exception(f"Failed to get alerts for entity: {str(e)}")
+
 
 def get_severity_name(level: int) -> str:
     """Convert Wazuh alert level to severity name"""

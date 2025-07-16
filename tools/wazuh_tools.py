@@ -19,8 +19,8 @@ class WazuhBaseTool(BaseTool):
 
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
-    name = "analyze_alerts"
-    description = "Analyze Wazuh alerts with ranking, filtering, counting, or distribution analysis"
+    name: str = "analyze_alerts"
+    description: str = "Analyze Wazuh alerts with ranking, filtering, counting, or distribution analysis"
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     async def _arun(
@@ -63,8 +63,8 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
-    name = "investigate_entity"
-    description = "Investigate specific entities (host, user, process, file) to get alerts, details, activity, or status"
+    name: str = "investigate_entity"
+    description: str = "Investigate specific entities (host, user, process, file) to get alerts, details, activity, or status"
     args_schema: Type[InvestigateEntitySchema] = InvestigateEntitySchema
     
     async def _arun(
@@ -108,8 +108,8 @@ class InvestigateEntityTool(WazuhBaseTool):
 
 class MapRelationshipsTool(WazuhBaseTool):
     """Tool for mapping relationships between entities"""
-    name = "map_relationships"
-    description = "Explore relationships between users, hosts, files, alerts, or other entities"
+    name: str = "map_relationships"
+    description: str = "Explore relationships between users, hosts, files, alerts, or other entities"
     args_schema: Type[MapRelationshipsSchema] = MapRelationshipsSchema
     
     async def _arun(
@@ -151,8 +151,8 @@ class MapRelationshipsTool(WazuhBaseTool):
 
 class DetectThreatsTool(WazuhBaseTool):
     """Tool for detecting threats and MITRE ATT&CK techniques"""
-    name = "detect_threats"
-    description = "Identify MITRE ATT&CK tactics, techniques, threat actors, or activity patterns"
+    name: str = "detect_threats"
+    description: str = "Identify MITRE ATT&CK tactics, techniques, threat actors, or activity patterns"
     args_schema: Type[DetectThreatsSchema] = DetectThreatsSchema
     
     async def _arun(
@@ -191,8 +191,8 @@ class DetectThreatsTool(WazuhBaseTool):
 
 class FindAnomaliesTool(WazuhBaseTool):
     """Tool for finding anomalies in security data"""
-    name = "find_anomalies"
-    description = "Detect abnormal behaviour in users, processes, hosts, or network activity"
+    name: str = "find_anomalies"
+    description: str = "Detect abnormal behaviour in users, processes, hosts, or network activity"
     args_schema: Type[FindAnomaliesSchema] = FindAnomaliesSchema
     
     async def _arun(
@@ -231,8 +231,8 @@ class FindAnomaliesTool(WazuhBaseTool):
 
 class TraceTimelineTool(WazuhBaseTool):
     """Tool for reconstructing event timelines"""
-    name = "trace_timeline"
-    description = "Reconstruct chronological view of events for entities or incidents"
+    name: str = "trace_timeline"
+    description: str = "Reconstruct chronological view of events for entities or incidents"
     args_schema: Type[TraceTimelineSchema] = TraceTimelineSchema
     
     async def _arun(
@@ -274,8 +274,8 @@ class TraceTimelineTool(WazuhBaseTool):
 
 class CheckVulnerabilitiesTool(WazuhBaseTool):
     """Tool for checking vulnerabilities"""
-    name = "check_vulnerabilities"
-    description = "Check for known vulnerabilities (CVEs) on hosts or in alerts"
+    name: str = "check_vulnerabilities"
+    description: str = "Check for known vulnerabilities (CVEs) on hosts or in alerts"
     args_schema: Type[CheckVulnerabilitiesSchema] = CheckVulnerabilitiesSchema
     
     async def _arun(
@@ -309,8 +309,8 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
 
 class MonitorAgentsTool(WazuhBaseTool):
     """Tool for monitoring Wazuh agents"""
-    name = "monitor_agents"
-    description = "Check agent connectivity, versions, and operational status"
+    name: str = "monitor_agents"
+    description: str = "Check agent connectivity, versions, and operational status"
     args_schema: Type[MonitorAgentsSchema] = MonitorAgentsSchema
     
     async def _arun(

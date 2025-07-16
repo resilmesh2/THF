@@ -4,8 +4,8 @@ Wazuh Security Agent using LangChain
 from langchain.agents import initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
 from langchain.callbacks import LangChainTracer
-from langchain.chat_models import ChatAnthropic
-from typing import Dict, Any, Optional
+from langchain_anthropic import ChatAnthropic
+from typing import Dict, Any, Optional, List
 import structlog
 import os
 
