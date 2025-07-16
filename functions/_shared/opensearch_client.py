@@ -36,7 +36,6 @@ class WazuhOpenSearchClient:
             verify_certs=verify_certs,
             ssl_assert_hostname=False,
             ssl_show_warn=False,
-            connection_class=RequestsHttpConnection,
             timeout=30,
             max_retries=3,
             retry_on_timeout=True
@@ -172,7 +171,7 @@ class WazuhOpenSearchClient:
                 
             return {
                 "range": {
-                    "timestamp": {
+                    "@timestamp": {
                         "gte": gte,
                         "lte": "now"
                     }
@@ -186,7 +185,7 @@ class WazuhOpenSearchClient:
             # Return default 24h range
             return {
                 "range": {
-                    "timestamp": {
+                    "@timestamp": {
                         "gte": "now-24h",
                         "lte": "now"
                     }
@@ -331,13 +330,13 @@ class WazuhOpenSearchClient:
             "user": "data.srcuser",
             "process": "data.process.name",
             "file": "data.file.name",
-            "ip": "data.srcip",
+            "ip": "agent.ip",
             "port": "data.srcport",
             "rule_id": "rule.id",
             "rule_level": "rule.level",
             "rule_description": "rule.description",
             "rule_groups": "rule.groups",
-            "timestamp": "timestamp",
+            "timestamp": "@timestamp",
             "alert_id": "_id"
         }
 

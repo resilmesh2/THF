@@ -60,7 +60,7 @@ class WazuhSecurityAgent:
         self.agent = initialize_agent(
             tools=self.tools,
             llm=self.llm,
-            agent=AgentType.OPENAI_FUNCTIONS,
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
             max_iterations=3,
@@ -85,8 +85,8 @@ class WazuhSecurityAgent:
         - If a tool returns placeholder data, acknowledge it's not yet implemented
         
         Available tools cover:
-        - Alert analysis and statistics (analyze_alerts)
-        - Entity investigation for hosts, users, processes, files (investigate_entity)
+        - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
+        - Alert analysis and statistics across multiple alerts (analyze_alerts)
         - Threat detection and MITRE ATT&CK mapping (detect_threats)
         - Relationship mapping between entities (map_relationships)
         - Anomaly detection (find_anomalies)
@@ -199,5 +199,5 @@ class WazuhSecurityAgent:
             "opensearch_host": self.opensearch_config.get("host"),
             "opensearch_port": self.opensearch_config.get("port"),
             "memory_type": "ConversationBufferMemory",
-            "agent_type": "OpenAI Functions"
+            "agent_type": "Structured Chat Zero Shot React Description"
         }

@@ -16,15 +16,34 @@ class WazuhBaseTool(BaseTool):
     
     def __init__(self, opensearch_client):
         super().__init__()
-        self.opensearch_client = opensearch_client
+        # Store opensearch_client as a private attribute to avoid Pydantic validation
+        self._opensearch_client = opensearch_client
+    
+    @property
+    def opensearch_client(self):
+        """Get the OpenSearch client"""
+        return self._opensearch_client
 
 
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze Wazuh alerts with ranking, filtering, counting, or distribution analysis"
+    description: str = "Analyze and aggregate Wazuh alerts by rule types, severity levels, or statistical distributions. Use for metrics, trends, and summaries across multiple alerts."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
+    def _run(
+        self,
+        action: str,
+        group_by: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 10,
+        time_range: str = "7d",
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for alert analysis"""
+        import asyncio
+        return asyncio.run(self._arun(action, group_by, filters, limit, time_range, run_manager))
+
     async def _arun(
         self,
         action: str,
@@ -67,9 +86,21 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
     name: str = "investigate_entity"
-    description: str = "Investigate specific entities (host, user, process, file) to get alerts, details, activity, or status"
+    description: str = "Get detailed information about specific entities (host, user, process, file, ip). Use to find all alerts, activity, or status for a specific entity like 'alerts for IP 192.168.1.1' or 'alerts for host server1'."
     args_schema: Type[InvestigateEntitySchema] = InvestigateEntitySchema
     
+    def _run(
+        self,
+        entity_type: str,
+        entity_id: str,
+        query_type: str,
+        time_range: str = "24h",
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for entity investigation"""
+        import asyncio
+        return asyncio.run(self._arun(entity_type, entity_id, query_type, time_range, run_manager))
+
     async def _arun(
         self,
         entity_type: str,
@@ -116,6 +147,19 @@ class MapRelationshipsTool(WazuhBaseTool):
     description: str = "Explore relationships between users, hosts, files, alerts, or other entities"
     args_schema: Type[MapRelationshipsSchema] = MapRelationshipsSchema
     
+    def _run(
+        self,
+        source_type: str,
+        source_id: str,
+        relationship_type: str,
+        target_type: Optional[str] = None,
+        timeframe: str = "24h",
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for relationship mapping"""
+        import asyncio
+        return asyncio.run(self._arun(source_type, source_id, relationship_type, target_type, timeframe, run_manager))
+
     async def _arun(
         self,
         source_type: str,
@@ -160,6 +204,19 @@ class DetectThreatsTool(WazuhBaseTool):
     description: str = "Identify MITRE ATT&CK tactics, techniques, threat actors, or activity patterns"
     args_schema: Type[DetectThreatsSchema] = DetectThreatsSchema
     
+    def _run(
+        self,
+        threat_type: str,
+        technique_id: Optional[str] = None,
+        tactic_name: Optional[str] = None,
+        actor_name: Optional[str] = None,
+        timeframe: str = "7d",
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for threat detection"""
+        import asyncio
+        return asyncio.run(self._arun(threat_type, technique_id, tactic_name, actor_name, timeframe, run_manager))
+
     async def _arun(
         self,
         threat_type: str,
@@ -201,6 +258,19 @@ class FindAnomaliesTool(WazuhBaseTool):
     description: str = "Detect abnormal behaviour in users, processes, hosts, or network activity"
     args_schema: Type[FindAnomaliesSchema] = FindAnomaliesSchema
     
+    def _run(
+        self,
+        anomaly_type: str,
+        metric: Optional[str] = None,
+        timeframe: str = "24h",
+        threshold: Optional[float] = None,
+        baseline: Optional[str] = None,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for anomaly detection"""
+        import asyncio
+        return asyncio.run(self._arun(anomaly_type, metric, timeframe, threshold, baseline, run_manager))
+
     async def _arun(
         self,
         anomaly_type: str,
@@ -242,6 +312,19 @@ class TraceTimelineTool(WazuhBaseTool):
     description: str = "Reconstruct chronological view of events for entities or incidents"
     args_schema: Type[TraceTimelineSchema] = TraceTimelineSchema
     
+    def _run(
+        self,
+        start_time: str,
+        end_time: str,
+        view_type: str,
+        entity: Optional[str] = None,
+        event_types: Optional[List[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for timeline reconstruction"""
+        import asyncio
+        return asyncio.run(self._arun(start_time, end_time, view_type, entity, event_types, run_manager))
+
     async def _arun(
         self,
         start_time: str,
@@ -286,6 +369,18 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
     description: str = "Check for known vulnerabilities (CVEs) on hosts or in alerts"
     args_schema: Type[CheckVulnerabilitiesSchema] = CheckVulnerabilitiesSchema
     
+    def _run(
+        self,
+        entity_filter: Optional[str] = None,
+        cve_id: Optional[str] = None,
+        severity: Optional[str] = None,
+        patch_status: Optional[str] = None,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for vulnerability checking"""
+        import asyncio
+        return asyncio.run(self._arun(entity_filter, cve_id, severity, patch_status, run_manager))
+
     async def _arun(
         self,
         entity_filter: Optional[str] = None,
@@ -322,6 +417,17 @@ class MonitorAgentsTool(WazuhBaseTool):
     description: str = "Check agent connectivity, versions, and operational status"
     args_schema: Type[MonitorAgentsSchema] = MonitorAgentsSchema
     
+    def _run(
+        self,
+        agent_id: Optional[str] = None,
+        status_filter: Optional[str] = None,
+        version_requirements: Optional[str] = None,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for agent monitoring"""
+        import asyncio
+        return asyncio.run(self._arun(agent_id, status_filter, version_requirements, run_manager))
+
     async def _arun(
         self,
         agent_id: Optional[str] = None,

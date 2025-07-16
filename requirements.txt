@@ -61,3 +61,4 @@ mkdocs-material>=9.4.0
 # Additional utilities
 python-dateutil>=2.8.2
 pytz>=2023.3
+requests~=2.32.4

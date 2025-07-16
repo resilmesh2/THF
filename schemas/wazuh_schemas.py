@@ -20,6 +20,7 @@ class EntityType(str, Enum):
     USER = "user"
     PROCESS = "process"
     FILE = "file"
+    IP = "ip"
 
 
 class QueryType(str, Enum):

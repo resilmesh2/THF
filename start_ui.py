@@ -6,9 +6,7 @@ import subprocess
 import sys
 import time
 import requests
-import threading
-import webbrowser
-from pathlib import Path
+
 
 def check_api_health():
     """Check if the API is running"""
@@ -18,16 +16,18 @@ def check_api_health():
     except requests.exceptions.RequestException:
         return False
 
+
 def start_api_server():
     """Start the FastAPI server"""
-    print("🚀 Starting FastAPI server...")
+    print("Starting FastAPI server...")
     subprocess.Popen([
         sys.executable, "main.py"
     ])
 
+
 def start_streamlit():
     """Start the Streamlit UI"""
-    print("🎨 Starting Streamlit UI...")
+    print("Starting Streamlit UI...")
     subprocess.run([
         sys.executable, "-m", "streamlit", "run", "streamlit_ui.py",
         "--server.headless", "true",
@@ -35,40 +35,42 @@ def start_streamlit():
         "--browser.gatherUsageStats", "false"
     ])
 
+
 def main():
     """Main startup function"""
-    print("🛡️  Wazuh LLM Security Assistant")
+    print("Wazuh LLM Security Assistant")
     print("=" * 50)
     
     # Check if API is already running
     if not check_api_health():
-        print("📡 API server not detected, starting...")
+        print("API server not detected, starting...")
         start_api_server()
         
         # Wait for API to start
         for i in range(30):  # Wait up to 30 seconds
             if check_api_health():
-                print("✅ API server started successfully!")
+                print("API server started successfully!")
                 break
             time.sleep(1)
-            print(f"⏳ Waiting for API server... ({i+1}/30)")
+            print(f"Waiting for API server... ({i+1}/30)")
         else:
-            print("❌ Failed to start API server!")
+            print("Failed to start API server!")
             print("Please check your configuration and try running 'python main.py' manually.")
             sys.exit(1)
     else:
-        print("✅ API server already running!")
+        print("API server already running!")
     
     # Start Streamlit UI
-    print("\n🎨 Starting Streamlit UI...")
-    print("📱 UI will be available at: http://localhost:8501")
-    print("⚡ Press Ctrl+C to stop both services")
+    print("\nStarting Streamlit UI...")
+    print("UI will be available at: http://localhost:8501")
+    print("Press Ctrl+C to stop both services")
     
     try:
         start_streamlit()
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down...")
+        print("\nShutting down...")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

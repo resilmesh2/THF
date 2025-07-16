@@ -47,7 +47,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 }
             },
             "sort": [
-                {"timestamp": {"order": "desc"}}
+                {"@timestamp": {"order": "desc"}}
             ],
             "aggs": {
                 "severity_distribution": {
@@ -72,7 +72,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 },
                 "timeline": {
                     "date_histogram": {
-                        "field": "timestamp",
+                        "field": "@timestamp",
                         "calendar_interval": "1h",
                         "format": "yyyy-MM-dd HH:mm"
                     }
@@ -95,7 +95,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
             alert = {
-                "timestamp": source.get("timestamp", ""),
+                "timestamp": source.get("@timestamp", ""),
                 "rule_id": source.get("rule", {}).get("id", ""),
                 "rule_description": source.get("rule", {}).get("description", ""),
                 "rule_level": source.get("rule", {}).get("level", 0),
