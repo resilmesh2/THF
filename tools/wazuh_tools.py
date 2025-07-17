@@ -3,8 +3,7 @@ LangChain tools for Wazuh SIEM functions
 """
 from langchain.tools import BaseTool
 from langchain.callbacks.manager import AsyncCallbackManagerForToolRun
-from typing import Optional, Type, Dict, Any
-import importlib
+from typing import Type
 import structlog
 from schemas.wazuh_schemas import *
 
@@ -28,7 +27,7 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate Wazuh alerts by rule types, severity levels, or statistical distributions. Use for metrics, trends, and summaries across multiple alerts."
+    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Use for counting alerts, ranking by frequency, or getting alert statistics."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(
@@ -86,7 +85,7 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
     name: str = "investigate_entity"
-    description: str = "Get detailed information about specific entities (host, user, process, file, ip). Use to find all alerts, activity, or status for a specific entity like 'alerts for IP 192.168.1.1' or 'alerts for host server1'."
+    description: str = "Get alerts, activity, status, or details for a specific entity (host, user, process, file, ip). Use this when querying about a specifically identified entity."
     args_schema: Type[InvestigateEntitySchema] = InvestigateEntitySchema
     
     def _run(
@@ -112,10 +111,19 @@ class InvestigateEntityTool(WazuhBaseTool):
         """Execute entity investigation"""
         try:
             # Route to specific sub-function based on query_type
-            if query_type == "alerts":
+            # Handle both string and enum values
+            query_value = query_type.value if hasattr(query_type, 'value') else query_type
+            
+            if query_value == "alerts":
                 from functions.investigate_entity.get_alerts_for_entity import execute
+            elif query_value == "details":
+                from functions.investigate_entity.get_entity_details import execute
+            elif query_value == "activity":
+                from functions.investigate_entity.get_entity_activity import execute
+            elif query_value == "status":
+                from functions.investigate_entity.get_entity_status import execute
             else:
-                raise ValueError(f"Unknown query_type: {query_type}")
+                raise ValueError(f"Unknown query_type: {query_value}. Supported types: alerts, details, activity, status")
             
             params = {
                 "entity_type": entity_type,
@@ -125,19 +133,19 @@ class InvestigateEntityTool(WazuhBaseTool):
             
             result = await execute(self.opensearch_client, params)
             
-            logger.info("Entity investigation completed", 
-                       entity_type=entity_type, 
-                       entity_id=entity_id,
-                       query_type=query_type,
-                       total_alerts=result.get("total_alerts", 0))
+            logger.info("Entity investigation completed",
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        query_type=query_type,
+                        total_alerts=result.get("total_alerts", 0))
             
             return result
             
         except Exception as e:
-            logger.error("Entity investigation failed", 
-                        entity_type=entity_type, 
-                        entity_id=entity_id, 
-                        error=str(e))
+            logger.error("Entity investigation failed",
+                         entity_type=entity_type,
+                         entity_id=entity_id,
+                         error=str(e))
             raise Exception(f"Entity investigation failed: {str(e)}")
 
 
@@ -183,18 +191,18 @@ class MapRelationshipsTool(WazuhBaseTool):
                 "relationships": []
             }
             
-            logger.info("Relationship mapping completed", 
-                       source_type=source_type, 
-                       source_id=source_id,
-                       relationship_type=relationship_type)
+            logger.info("Relationship mapping completed",
+                        source_type=source_type,
+                        source_id=source_id,
+                        relationship_type=relationship_type)
             
             return result
             
         except Exception as e:
-            logger.error("Relationship mapping failed", 
-                        source_type=source_type, 
-                        source_id=source_id, 
-                        error=str(e))
+            logger.error("Relationship mapping failed",
+                         source_type=source_type,
+                         source_id=source_id,
+                         error=str(e))
             raise Exception(f"Relationship mapping failed: {str(e)}")
 
 
@@ -240,15 +248,15 @@ class DetectThreatsTool(WazuhBaseTool):
                 "threats": []
             }
             
-            logger.info("Threat detection completed", 
-                       threat_type=threat_type)
+            logger.info("Threat detection completed",
+                        threat_type=threat_type)
             
             return result
             
         except Exception as e:
-            logger.error("Threat detection failed", 
-                        threat_type=threat_type, 
-                        error=str(e))
+            logger.error("Threat detection failed",
+                         threat_type=threat_type,
+                         error=str(e))
             raise Exception(f"Threat detection failed: {str(e)}")
 
 

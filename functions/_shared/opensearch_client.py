@@ -258,7 +258,7 @@ class WazuhOpenSearchClient:
             return {
                 "date_histogram": {
                     "field": field,
-                    "calendar_interval": "1h",
+                    "interval": "1h",
                     "format": "yyyy-MM-dd HH:mm:ss"
                 }
             }
@@ -351,8 +351,24 @@ class WazuhOpenSearchClient:
         Returns:
             OpenSearch query for the entity
         """
-        field_mappings = self.get_field_mappings()
-        field = field_mappings.get(entity_type, "agent.name")
+        import re
+        
+        # Smart field detection based on entity_id format
+        if entity_type == "host":
+            # Check if entity_id looks like an IP address
+            ip_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
+            if re.match(ip_pattern, entity_id):
+                field = "agent.ip"
+            # Check if entity_id looks like an agent ID (numbers only)
+            elif entity_id.isdigit():
+                field = "agent.id"
+            else:
+                # Default to agent name for hostnames
+                field = "agent.name"
+        else:
+            # Use regular field mappings for other entity types
+            field_mappings = self.get_field_mappings()
+            field = field_mappings.get(entity_type, "agent.name")
         
         return {
             "term": {field: entity_id}

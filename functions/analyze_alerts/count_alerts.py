@@ -62,7 +62,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "hourly_distribution": {
                     "date_histogram": {
                         "field": "timestamp",
-                        "calendar_interval": "1h",
+                        "interval": "1h",
                         "format": "yyyy-MM-dd HH:mm"
                     }
                 },
