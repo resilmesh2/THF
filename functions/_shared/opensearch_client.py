@@ -327,11 +327,12 @@ class WazuhOpenSearchClient:
         """
         return {
             "host": "agent.name",
-            "user": "data.srcuser",
-            "process": "data.process.name",
-            "file": "data.file.name",
+            "user": "data.win.eventdata.user",
+            "process": "data.win.eventdata.image",
+            "file": "data.win.eventdata.targetFilename",
             "ip": "agent.ip",
-            "port": "data.srcport",
+            "source_port": "data.win.eventdata.sourcePort",
+            "destination_port": "data.win.eventdata.destinationPort",
             "rule_id": "rule.id",
             "rule_level": "rule.level",
             "rule_description": "rule.description",
@@ -339,13 +340,61 @@ class WazuhOpenSearchClient:
             "timestamp": "@timestamp",
             "alert_id": "_id"
         }
+    
+    def get_detailed_field_mappings(self) -> Dict[str, Dict[str, str]]:
+        """
+        Get detailed field mappings for comprehensive entity attributes
+        
+        Returns:
+            Dictionary mapping entity types to their detailed field mappings
+        """
+        return {
+            "process": {
+                "pid": "data.win.eventdata.processId",
+                "ppid": "data.win.eventdata.parentProcessId",
+                "command_line": "data.win.eventdata.commandLine",
+                "exe": "data.win.eventdata.image",
+                "image_path": "data.win.eventdata.image",
+                "uid": "data.win.eventdata.subjectUserSid",
+                "parent_command_line": "data.win.eventdata.parentCommandLine",
+                "guid": "data.win.eventdata.processGuid",
+                "login_id": "data.win.eventdata.logonId",
+                "integrity_level": "data.win.eventdata.integrityLevel",
+                "current_working_path": "data.win.eventdata.currentDirectory",
+                "md5_hash": "syscheck.md5_after",
+                "sha1_hash": "syscheck.sha1_after",
+                "signature_valid": "data.win.eventdata.status"
+            },
+            "user": {
+                "name": "data.win.eventdata.targetUserName",
+                "subject_name": "data.win.eventdata.subjectUserName",
+                "domain": "data.win.eventdata.targetDomainName",
+                "subject_domain": "data.win.eventdata.subjectDomainName",
+                "sid": "data.win.eventdata.targetUserSid",
+                "subject_sid": "data.win.eventdata.subjectUserSid",
+                "logon_id": "data.win.eventdata.targetLogonId",
+                "logon_type": "data.win.eventdata.logonType"
+            },
+            "host": {
+                "name": "agent.name",
+                "ip": "agent.ip",
+                "id": "agent.id",
+                "manager": "manager.name"
+            },
+            "file": {
+                "name": "data.file.name",
+                "path": "data.file.path",
+                "size": "data.file.size",
+                "hash": "data.file.hash"
+            }
+        }
 
     def build_entity_query(self, entity_type: str, entity_id: str) -> Dict[str, Any]:
         """
-        Build query for specific entity
+        Build query for specific entity with intelligent field detection
         
         Args:
-            entity_type: Type of entity (host, user, process, file)
+            entity_type: Type of entity (host, user, process, service, file)
             entity_id: ID of the entity
             
         Returns:
@@ -353,7 +402,7 @@ class WazuhOpenSearchClient:
         """
         import re
         
-        # Smart field detection based on entity_id format
+        # Smart field detection based on entity_id format and type
         if entity_type == "host":
             # Check if entity_id looks like an IP address
             ip_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
@@ -365,6 +414,43 @@ class WazuhOpenSearchClient:
             else:
                 # Default to agent name for hostnames
                 field = "agent.name"
+                
+        elif entity_type == "process":
+            # Check if entity_id looks like a PID (numbers only)
+            if entity_id.isdigit():
+                field = "data.win.eventdata.processId"
+            # Check if it looks like a GUID pattern
+            elif re.match(r'^{[0-9a-fA-F-]+}$', entity_id):
+                field = "data.win.eventdata.processGuid"
+            # Check if it contains path separators (likely executable path)
+            elif ('\\' in entity_id or '/' in entity_id):
+                field = "data.win.eventdata.image"
+            else:
+                # Default to process name
+                field = "data.win.eventdata.processName"
+                
+        elif entity_type == "service":
+            # Check if entity_id looks like a PID (numbers only)
+            if entity_id.isdigit():
+                field = "data.win.eventdata.processId"
+            # Check if it contains path separators (likely executable path)
+            elif ('\\' in entity_id or '/' in entity_id):
+                field = "data.win.eventdata.image"
+            else:
+                # Default to service/process name
+                field = "data.win.eventdata.processName"
+                
+        elif entity_type == "user":
+            # Check if entity_id looks like a SID
+            if entity_id.startswith('S-1-'):
+                field = "data.win.eventdata.targetUserSid"
+            # Check if it looks like a logon ID
+            elif re.match(r'^0x[0-9a-fA-F]+$', entity_id):
+                field = "data.win.eventdata.targetLogonId"
+            else:
+                # Default to username
+                field = "data.win.eventdata.targetUserName"
+                
         else:
             # Use regular field mappings for other entity types
             field_mappings = self.get_field_mappings()

@@ -3,7 +3,6 @@ Streamlit UI for Wazuh LLM Security Assistant
 """
 import streamlit as st
 import requests
-import json
 from datetime import datetime
 import time
 import base64
@@ -136,6 +135,12 @@ else:
 
 # Sidebar
 with st.sidebar:
+    # Add Resilmesh logo at the top
+    logo_path = "images/resilmesh_logo.png"
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=150)
+        st.markdown("---")  # Add separator line after logo
+    
     st.header("Configuration")
 
     # API Status
