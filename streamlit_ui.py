@@ -138,7 +138,13 @@ with st.sidebar:
     # Add Resilmesh logo at the top
     logo_path = "images/resilmesh_logo.png"
     if os.path.exists(logo_path):
-        st.image(logo_path, width=150)
+        # Convert logo to base64 and display as HTML to prevent expansion
+        try:
+            with open(logo_path, "rb") as f:
+                logo_data = base64.b64encode(f.read()).decode()
+            st.markdown(f'<img src="data:image/png;base64,{logo_data}" width="150" style="display: block; margin: 0 auto;">', unsafe_allow_html=True)
+        except Exception:
+            st.markdown("**Resilmesh Logo**")
         st.markdown("---")  # Add separator line after logo
     
     st.header("Configuration")
