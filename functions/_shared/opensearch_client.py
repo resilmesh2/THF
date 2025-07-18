@@ -328,7 +328,7 @@ class WazuhOpenSearchClient:
         return {
             "host": "agent.name",
             "user": "data.win.eventdata.targetUserName",
-            "process": "data.win.eventdata.processName",
+            "process": "data.win.eventdata.image",
             "file": "data.win.eventdata.targetFilename",
             "ip": "agent.ip",
             "source_port": "data.win.eventdata.sourcePort",

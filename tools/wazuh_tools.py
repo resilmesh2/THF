@@ -59,6 +59,10 @@ class AnalyzeAlertsTool(WazuhBaseTool):
                 from functions.analyze_alerts.rank_alerts import execute
             elif action == "counting":
                 from functions.analyze_alerts.count_alerts import execute
+            elif action == "filtering":
+                from functions.analyze_alerts.filter_alerts import execute
+            elif action == "distribution":
+                from functions.analyze_alerts.distribution_alerts import execute
             else:
                 raise ValueError(f"Unknown action: {action}")
             
