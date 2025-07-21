@@ -213,7 +213,7 @@ class MapRelationshipsTool(WazuhBaseTool):
 class DetectThreatsTool(WazuhBaseTool):
     """Tool for detecting threats and MITRE ATT&CK techniques"""
     name: str = "detect_threats"
-    description: str = "Identify MITRE ATT&CK tactics, techniques, threat actors, or activity patterns"
+    description: str = "Identify MITRE ATT&CK tactics, techniques, threat actors, indicator of compromises or activity patterns"
     args_schema: Type[DetectThreatsSchema] = DetectThreatsSchema
     
     def _run(
@@ -240,20 +240,40 @@ class DetectThreatsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute threat detection"""
         try:
-            # For now, return a placeholder response
-            # TODO: Implement actual threat detection functions
-            result = {
-                "threat_type": threat_type,
+            # Handle both string and enum values
+            threat_value = threat_type.value if hasattr(threat_type, 'value') else threat_type
+            
+            # Normalize to lowercase for case-insensitive matching
+            threat_value_lower = threat_value.lower()
+            
+            # Route to specific sub-function based on threat_type
+            if threat_value_lower == "technique":
+                from functions.detect_threats.find_technique import execute
+            elif threat_value_lower == "tactic":
+                from functions.detect_threats.find_tactic import execute
+            elif threat_value_lower in ["threat_actor", "actor"]:
+                from functions.detect_threats.find_threat_actor import execute
+            elif threat_value_lower in ["indicators", "iocs", "indicators of compromise"]:
+                from functions.detect_threats.find_indicators import execute
+            elif threat_value_lower == "chains":
+                from functions.detect_threats.find_chains import execute
+            else:
+                raise ValueError(f"Unknown threat_type: {threat_value}. Supported types: technique, tactic, threat_actor/actor, indicators/ioc, chains")
+            
+            # Build parameters
+            params = {
                 "technique_id": technique_id,
                 "tactic_name": tactic_name,
                 "actor_name": actor_name,
-                "timeframe": timeframe,
-                "message": "Threat detection not yet implemented",
-                "threats": []
+                "timeframe": timeframe
             }
             
+            # Execute the detection
+            result = await execute(self.opensearch_client, params)
+            
             logger.info("Threat detection completed",
-                        threat_type=threat_type)
+                        threat_type=threat_value,
+                        total_results=result.get("total_alerts", 0))
             
             return result
             
