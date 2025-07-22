@@ -440,50 +440,87 @@ class TraceTimelineTool(WazuhBaseTool):
 
 
 class CheckVulnerabilitiesTool(WazuhBaseTool):
-    """Tool for checking vulnerabilities"""
+    """Tool for checking vulnerabilities using various analysis methods"""
     name: str = "check_vulnerabilities"
-    description: str = "Check for known vulnerabilities (CVEs) on hosts or in alerts"
+    description: str = "Check vulnerabilities using different actions: 'list_by_entity' (list vulnerabilities by host/entity), 'check_cve' (analyze specific CVE references), 'check_patches' (check patch status and Windows updates)"
     args_schema: Type[CheckVulnerabilitiesSchema] = CheckVulnerabilitiesSchema
     
     def _run(
         self,
+        action: str,
         entity_filter: Optional[str] = None,
         cve_id: Optional[str] = None,
         severity: Optional[str] = None,
         patch_status: Optional[str] = None,
+        timeframe: str = "30d",
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         """Synchronous wrapper for vulnerability checking"""
         import asyncio
-        return asyncio.run(self._arun(entity_filter, cve_id, severity, patch_status, run_manager))
+        return asyncio.run(self._arun(action, entity_filter, cve_id, severity, patch_status, timeframe, run_manager))
 
     async def _arun(
         self,
+        action: str,
         entity_filter: Optional[str] = None,
         cve_id: Optional[str] = None,
         severity: Optional[str] = None,
         patch_status: Optional[str] = None,
+        timeframe: str = "30d",
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         """Execute vulnerability checking"""
         try:
-            # For now, return a placeholder response
-            # TODO: Implement actual vulnerability checking functions
-            result = {
+            # Build parameters for the vulnerability checking function
+            params = {
                 "entity_filter": entity_filter,
                 "cve_id": cve_id,
                 "severity": severity,
                 "patch_status": patch_status,
-                "message": "Vulnerability checking not yet implemented",
-                "vulnerabilities": []
+                "timeframe": timeframe
             }
             
-            logger.info("Vulnerability checking completed")
+            # Remove None values
+            params = {k: v for k, v in params.items() if v is not None}
+            
+            logger.info("Executing vulnerability checking", 
+                       action=action,
+                       params=params)
+            
+            # Handle both string and enum values
+            action_value = action.value if hasattr(action, 'value') else action
+            action_lower = action_value.lower()
+            
+            # Route to appropriate vulnerability checking function based on action
+            if action_lower == "list_by_entity":
+                from functions.check_vulnerabilities.list_by_entity import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif action_lower == "check_cve":
+                from functions.check_vulnerabilities.check_cve import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif action_lower == "check_patches":
+                from functions.check_vulnerabilities.check_patches import execute
+                result = await execute(self.opensearch_client, params)
+                
+            else:
+                # Default to list_by_entity for unknown actions
+                logger.warning("Unknown vulnerability action, defaulting to list_by_entity", 
+                             action=action)
+                from functions.check_vulnerabilities.list_by_entity import execute
+                result = await execute(self.opensearch_client, params)
+            
+            logger.info("Vulnerability checking completed", 
+                       action=action,
+                       total_results=result.get("total_vulnerability_alerts", result.get("total_cve_alerts", result.get("total_patch_events", 0))))
             
             return result
             
         except Exception as e:
-            logger.error("Vulnerability checking failed", error=str(e))
+            logger.error("Vulnerability checking failed", 
+                        action=action,
+                        error=str(e))
             raise Exception(f"Vulnerability checking failed: {str(e)}")
 
 

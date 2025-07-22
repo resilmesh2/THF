@@ -62,6 +62,13 @@ class RelationshipType(str, Enum):
     ACTIVITY_CORRELATION = "activity_correlation"
 
 
+class VulnerabilityAction(str, Enum):
+    """Types of vulnerability checking actions"""
+    LIST_BY_ENTITY = "list_by_entity"
+    CHECK_CVE = "check_cve"
+    CHECK_PATCHES = "check_patches"
+
+
 class AnalyzeAlertsSchema(BaseModel):
     """Schema for analyze_alerts function"""
     action: AlertAction = Field(description="Type of analysis to perform")
@@ -117,10 +124,12 @@ class TraceTimelineSchema(BaseModel):
 
 class CheckVulnerabilitiesSchema(BaseModel):
     """Schema for check_vulnerabilities function"""
-    entity_filter: Optional[str] = Field(default=None, description="Filter by entity")
-    cve_id: Optional[str] = Field(default=None, description="Specific CVE ID to check")
-    severity: Optional[str] = Field(default=None, description="Vulnerability severity level")
-    patch_status: Optional[str] = Field(default=None, description="Patch status filter")
+    action: VulnerabilityAction = Field(description="Type of vulnerability check to perform: 'list_by_entity', 'check_cve', or 'check_patches'")
+    entity_filter: Optional[str] = Field(default=None, description="Filter by entity name or pattern")
+    cve_id: Optional[str] = Field(default=None, description="Specific CVE ID to check (for check_cve action)")
+    severity: Optional[str] = Field(default=None, description="Vulnerability severity level (low, medium, high, critical)")
+    patch_status: Optional[str] = Field(default=None, description="Patch status filter (installed, missing, failed)")
+    timeframe: Optional[str] = Field(default="30d", description="Time frame for vulnerability analysis (e.g., '30d', '7d')")
 
 
 class MonitorAgentsSchema(BaseModel):
