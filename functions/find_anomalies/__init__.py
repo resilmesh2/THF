@@ -1,11 +1,15 @@
 """
-Anomaly detection functions - To be implemented
+Anomaly detection functions for Wazuh SIEM data
 """
 
-# TODO: Implement these functions:
-# - detect_threshold.py
-# - detect_pattern.py
-# - detect_behavioral.py
-# - detect_trend.py
+from .detect_threshold import execute as execute_threshold
+from .detect_pattern import execute as execute_pattern
+from .detect_behavioral import execute as execute_behavioral
+from .detect_trend import execute as execute_trend
 
-__all__ = []
+__all__ = [
+    "execute_threshold",
+    "execute_pattern", 
+    "execute_behavioral",
+    "execute_trend"
+]

@@ -99,11 +99,11 @@ class DetectThreatsSchema(BaseModel):
 
 class FindAnomaliesSchema(BaseModel):
     """Schema for find_anomalies function"""
-    anomaly_type: AnomalyType = Field(description="Type of anomaly to detect")
-    metric: Optional[str] = Field(default=None, description="Metric to analyze")
-    timeframe: Optional[str] = Field(default="24h", description="Time frame for anomaly detection")
-    threshold: Optional[float] = Field(default=None, description="Threshold for anomaly detection")
-    baseline: Optional[str] = Field(default=None, description="Baseline period for comparison")
+    anomaly_type: AnomalyType = Field(description="Type of anomaly detection: 'threshold' (entities exceeding limits), 'pattern' (unusual time/activity patterns), 'behavioral' (deviations from baselines), 'trend' (increasing/decreasing over time), or 'all' for comprehensive analysis")
+    metric: Optional[str] = Field(default=None, description="Specific metric to analyze (e.g., 'alert_count', 'severity')")
+    timeframe: Optional[str] = Field(default="24h", description="Time frame for anomaly detection (e.g., '24h', '7d')")
+    threshold: Optional[float] = Field(default=None, description="Threshold value for anomaly detection")
+    baseline: Optional[str] = Field(default=None, description="Baseline period for comparison (e.g., '7d', '30d')")
 
 
 class TraceTimelineSchema(BaseModel):

@@ -285,9 +285,9 @@ class DetectThreatsTool(WazuhBaseTool):
 
 
 class FindAnomaliesTool(WazuhBaseTool):
-    """Tool for finding anomalies in security data"""
+    """Tool for finding anomalies in security data using various detection methods"""
     name: str = "find_anomalies"
-    description: str = "Detect abnormal behaviour in users, processes, hosts, or network activity"
+    description: str = "Detect security anomalies using different analysis types: 'threshold' (entities exceeding limits), 'pattern' (unusual temporal/behavioral patterns), 'behavioral' (deviations from historical baselines), 'trend' (increasing/decreasing patterns over time)"
     args_schema: Type[FindAnomaliesSchema] = FindAnomaliesSchema
     
     def _run(
@@ -314,20 +314,64 @@ class FindAnomaliesTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute anomaly detection"""
         try:
-            # For now, return a placeholder response
-            # TODO: Implement actual anomaly detection functions
-            result = {
-                "anomaly_type": anomaly_type,
+            # Build parameters for the anomaly detection function
+            params = {
                 "metric": metric,
                 "timeframe": timeframe,
                 "threshold": threshold,
-                "baseline": baseline,
-                "message": "Anomaly detection not yet implemented",
-                "anomalies": []
+                "baseline": baseline
             }
             
+            # Remove None values
+            params = {k: v for k, v in params.items() if v is not None}
+            
+            logger.info("Executing anomaly detection", 
+                       anomaly_type=anomaly_type,
+                       params=params)
+            
+            # Route to appropriate anomaly detection function based on type
+            anomaly_type_lower = anomaly_type.lower()
+            
+            # Handle common variations and map them to correct types
+            if anomaly_type_lower in ["threshold", "thresholds"]:
+                from functions.find_anomalies.detect_threshold import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif anomaly_type_lower in ["pattern", "patterns", "temporal", "time_pattern", "time_patterns"]:
+                from functions.find_anomalies.detect_pattern import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif anomaly_type_lower in ["behavioral", "behaviour", "behavior", "user_behavior", "host_behavior", "baseline", "baseline_comparison"]:
+                from functions.find_anomalies.detect_behavioral import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif anomaly_type_lower in ["trend", "trends", "trending", "time_trend", "temporal_trend"]:
+                from functions.find_anomalies.detect_trend import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif anomaly_type_lower in ["all", "comprehensive"]:
+                # For comprehensive analysis, default to behavioral as it provides the most comprehensive view
+                logger.info("Comprehensive anomaly request, using behavioral detection", 
+                           anomaly_type=anomaly_type)
+                from functions.find_anomalies.detect_behavioral import execute
+                result = await execute(self.opensearch_client, params)
+                
+            else:
+                # Default to behavioral detection for user-focused queries, threshold for others
+                if any(keyword in anomaly_type_lower for keyword in ["user", "host", "entity", "activity"]):
+                    logger.info("Mapping user/host/activity query to behavioral detection", 
+                               anomaly_type=anomaly_type)
+                    from functions.find_anomalies.detect_behavioral import execute
+                    result = await execute(self.opensearch_client, params)
+                else:
+                    logger.warning("Unknown anomaly type, defaulting to threshold", 
+                                 anomaly_type=anomaly_type)
+                    from functions.find_anomalies.detect_threshold import execute
+                    result = await execute(self.opensearch_client, params)
+            
             logger.info("Anomaly detection completed", 
-                       anomaly_type=anomaly_type)
+                       anomaly_type=anomaly_type,
+                       total_anomalies=result.get("summary", {}).get("total_anomalies", result.get("summary", {}).get("total_threshold_anomalies", result.get("summary", {}).get("total_pattern_anomalies", result.get("summary", {}).get("total_behavioral_anomalies", result.get("summary", {}).get("total_trend_anomalies", 0))))))
             
             return result
             
