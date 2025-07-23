@@ -69,6 +69,13 @@ class VulnerabilityAction(str, Enum):
     CHECK_PATCHES = "check_patches"
 
 
+class AgentMonitorAction(str, Enum):
+    """Types of agent monitoring actions"""
+    STATUS_CHECK = "status_check"
+    VERSION_CHECK = "version_check"
+    HEALTH_CHECK = "health_check"
+
+
 class AnalyzeAlertsSchema(BaseModel):
     """Schema for analyze_alerts function"""
     action: AlertAction = Field(description="Type of analysis to perform")
@@ -134,6 +141,9 @@ class CheckVulnerabilitiesSchema(BaseModel):
 
 class MonitorAgentsSchema(BaseModel):
     """Schema for monitor_agents function"""
-    agent_id: Optional[str] = Field(default=None, description="Specific agent ID")
-    status_filter: Optional[str] = Field(default=None, description="Filter by agent status")
-    version_requirements: Optional[str] = Field(default=None, description="Version requirements")
+    action: AgentMonitorAction = Field(description="Type of agent monitoring to perform: 'status_check', 'version_check', or 'health_check'")
+    agent_id: Optional[str] = Field(default=None, description="Specific agent ID, name, or IP address")
+    status_filter: Optional[str] = Field(default=None, description="Filter by agent status (active, inactive, disconnected)")
+    version_requirements: Optional[str] = Field(default=None, description="Version requirements (e.g., '>=4.5.0')")
+    timeframe: Optional[str] = Field(default="24h", description="Time frame for analysis (e.g., '24h', '7d')")
+    health_threshold: Optional[float] = Field(default=70.0, description="Health score threshold for health_check action")

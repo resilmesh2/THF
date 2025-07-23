@@ -525,47 +525,87 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
 
 
 class MonitorAgentsTool(WazuhBaseTool):
-    """Tool for monitoring Wazuh agents"""
+    """Tool for monitoring Wazuh agents using various analysis methods"""
     name: str = "monitor_agents"
-    description: str = "Check agent connectivity, versions, and operational status"
+    description: str = "Monitor Wazuh agents and retrieve agent information including OS version, agent version, connectivity status, and health metrics. Use this for queries about specific agents by ID, name, or IP address. Actions: 'status_check' (connectivity and operational status), 'version_check' (agent and OS version information), 'health_check' (comprehensive health analysis)"
     args_schema: Type[MonitorAgentsSchema] = MonitorAgentsSchema
     
     def _run(
         self,
+        action: str,
         agent_id: Optional[str] = None,
         status_filter: Optional[str] = None,
         version_requirements: Optional[str] = None,
+        timeframe: str = "24h",
+        health_threshold: float = 70.0,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         """Synchronous wrapper for agent monitoring"""
         import asyncio
-        return asyncio.run(self._arun(agent_id, status_filter, version_requirements, run_manager))
+        return asyncio.run(self._arun(action, agent_id, status_filter, version_requirements, timeframe, health_threshold, run_manager))
 
     async def _arun(
         self,
+        action: str,
         agent_id: Optional[str] = None,
         status_filter: Optional[str] = None,
         version_requirements: Optional[str] = None,
+        timeframe: str = "24h",
+        health_threshold: float = 70.0,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         """Execute agent monitoring"""
         try:
-            # For now, return a placeholder response
-            # TODO: Implement actual agent monitoring functions
-            result = {
+            # Build parameters for the monitoring function
+            params = {
                 "agent_id": agent_id,
                 "status_filter": status_filter,
                 "version_requirements": version_requirements,
-                "message": "Agent monitoring not yet implemented",
-                "agents": []
+                "timeframe": timeframe,
+                "health_threshold": health_threshold
             }
             
-            logger.info("Agent monitoring completed")
+            # Remove None values
+            params = {k: v for k, v in params.items() if v is not None}
+            
+            logger.info("Executing agent monitoring", 
+                       action=action,
+                       params=params)
+            
+            # Handle both string and enum values
+            action_value = action.value if hasattr(action, 'value') else action
+            action_lower = action_value.lower()
+            
+            # Route to appropriate monitoring function based on action
+            if action_lower == "status_check":
+                from functions.monitor_agents.status_check import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif action_lower == "version_check":
+                from functions.monitor_agents.version_check import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif action_lower == "health_check":
+                from functions.monitor_agents.health_check import execute
+                result = await execute(self.opensearch_client, params)
+                
+            else:
+                # Default to status_check for unknown actions
+                logger.warning("Unknown monitoring action, defaulting to status_check", 
+                             action=action)
+                from functions.monitor_agents.status_check import execute
+                result = await execute(self.opensearch_client, params)
+            
+            logger.info("Agent monitoring completed", 
+                       action=action,
+                       total_agents=result.get("agent_summary", result.get("version_summary", result.get("health_summary", {}))).get("total_agents", 0))
             
             return result
             
         except Exception as e:
-            logger.error("Agent monitoring failed", error=str(e))
+            logger.error("Agent monitoring failed", 
+                        action=action,
+                        error=str(e))
             raise Exception(f"Agent monitoring failed: {str(e)}")
 
 
