@@ -385,14 +385,14 @@ class FindAnomaliesTool(WazuhBaseTool):
 class TraceTimelineTool(WazuhBaseTool):
     """Tool for reconstructing event timelines"""
     name: str = "trace_timeline"
-    description: str = "Reconstruct chronological view of events for entities or incidents"
+    description: str = "Reconstruct chronological timeline of events for entities or incidents. Use for attack chain analysis, event sequences, and temporal correlation. View types: 'sequence' (chronological event display), 'progression' (attack chain analysis and MITRE ATT&CK progression tracing - optimized for shorter time windows like 1-3 days), 'temporal' (event correlation by time proximity). Use 'progression' for queries like 'trace attack path', 'attack chain analysis', 'complete attack sequence', or 'from initial access to exfiltration'. For large time ranges, consider using entity filters to narrow the scope."
     args_schema: Type[TraceTimelineSchema] = TraceTimelineSchema
     
     def _run(
         self,
-        start_time: str,
-        end_time: str,
-        view_type: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        view_type: str = "progression",
         entity: Optional[str] = None,
         event_types: Optional[List[str]] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
@@ -403,31 +403,65 @@ class TraceTimelineTool(WazuhBaseTool):
 
     async def _arun(
         self,
-        start_time: str,
-        end_time: str,
-        view_type: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        view_type: str = "progression",
         entity: Optional[str] = None,
         event_types: Optional[List[str]] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         """Execute timeline reconstruction"""
         try:
-            # For now, return a placeholder response
-            # TODO: Implement actual timeline reconstruction functions
-            result = {
+            # Set default time range if not provided
+            if start_time is None:
+                start_time = "now-7d"  # Default to 7 days ago
+            if end_time is None:
+                end_time = "now"  # Default to current time
+            
+            # Build parameters for the timeline function
+            params = {
                 "start_time": start_time,
                 "end_time": end_time,
-                "view_type": view_type,
                 "entity": entity,
-                "event_types": event_types,
-                "message": "Timeline reconstruction not yet implemented",
-                "timeline": []
+                "event_types": event_types
             }
             
+            # Remove None values
+            params = {k: v for k, v in params.items() if v is not None}
+            
+            logger.info("Executing timeline reconstruction", 
+                       view_type=view_type,
+                       params=params)
+            
+            # Handle both string and enum values
+            view_value = view_type.value if hasattr(view_type, 'value') else view_type
+            view_lower = view_value.lower()
+            
+            # Route to appropriate timeline function based on view_type
+            if view_lower in ["sequence", "show_sequence", "detailed", "chronological"]:
+                from functions.trace_timeline.show_sequence import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif view_lower in ["progression", "trace_progression", "attack", "chain"]:
+                from functions.trace_timeline.trace_progression import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif view_lower in ["temporal", "correlate_temporal", "correlation", "related"]:
+                from functions.trace_timeline.correlate_temporal import execute
+                result = await execute(self.opensearch_client, params)
+                
+            else:
+                # Default to sequence view for unknown types
+                logger.warning("Unknown view type, defaulting to sequence", 
+                             view_type=view_type)
+                from functions.trace_timeline.show_sequence import execute
+                result = await execute(self.opensearch_client, params)
+            
             logger.info("Timeline reconstruction completed", 
+                       view_type=view_type,
                        start_time=start_time,
                        end_time=end_time,
-                       view_type=view_type)
+                       total_events=result.get("timeline_summary", result.get("progression_summary", result.get("correlation_summary", {}))).get("total_events", 0))
             
             return result
             
@@ -435,6 +469,7 @@ class TraceTimelineTool(WazuhBaseTool):
             logger.error("Timeline reconstruction failed", 
                         start_time=start_time, 
                         end_time=end_time, 
+                        view_type=view_type,
                         error=str(e))
             raise Exception(f"Timeline reconstruction failed: {str(e)}")
 

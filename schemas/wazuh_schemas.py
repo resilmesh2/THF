@@ -122,10 +122,10 @@ class FindAnomaliesSchema(BaseModel):
 
 class TraceTimelineSchema(BaseModel):
     """Schema for trace_timeline function"""
-    start_time: str = Field(description="Start time for timeline")
-    end_time: str = Field(description="End time for timeline")
+    start_time: Optional[str] = Field(default=None, description="Start time for timeline (optional, defaults to 7 days ago for progression analysis)")
+    end_time: Optional[str] = Field(default=None, description="End time for timeline (optional, defaults to now for progression analysis)")
     entity: Optional[str] = Field(default=None, description="Entity to focus timeline on")
-    view_type: ViewType = Field(description="Type of timeline view")
+    view_type: ViewType = Field(description="Type of timeline view: 'sequence', 'progression', or 'temporal'")
     event_types: Optional[List[str]] = Field(default=None, description="Types of events to include")
 
 
