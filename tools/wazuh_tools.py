@@ -156,7 +156,7 @@ class InvestigateEntityTool(WazuhBaseTool):
 class MapRelationshipsTool(WazuhBaseTool):
     """Tool for mapping relationships between entities"""
     name: str = "map_relationships"
-    description: str = "Explore relationships between users, hosts, files, alerts, or other entities"
+    description: str = "Map and analyze relationships between entities (users, hosts, files, processes, IPs). Relationship types: 'entity_to_entity' (direct connections), 'access_patterns' (behavioral analysis and access patterns), 'activity_correlation' (correlated activities across entities). For access queries like 'users who accessed host X', use source_type='host', source_id='X', target_type='user' to find user access events on that host. For 'hosts accessed by user Y', use source_type='user', source_id='Y', target_type='host'."
     args_schema: Type[MapRelationshipsSchema] = MapRelationshipsSchema
     
     def _run(
@@ -183,22 +183,52 @@ class MapRelationshipsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute relationship mapping"""
         try:
-            # For now, return a placeholder response
-            # TODO: Implement actual relationship mapping functions
-            result = {
+            # Build parameters for the relationship mapping functions
+            params = {
                 "source_type": source_type,
                 "source_id": source_id,
-                "relationship_type": relationship_type,
                 "target_type": target_type,
-                "timeframe": timeframe,
-                "message": "Relationship mapping not yet implemented",
-                "relationships": []
+                "timeframe": timeframe
             }
+            
+            # Remove None values
+            params = {k: v for k, v in params.items() if v is not None}
+            
+            logger.info("Executing relationship mapping", 
+                       relationship_type=relationship_type,
+                       params=params)
+            
+            # Handle both string and enum values
+            rel_value = relationship_type.value if hasattr(relationship_type, 'value') else relationship_type
+            rel_lower = rel_value.lower()
+            
+            # Route to appropriate relationship mapping function based on relationship_type
+            if rel_lower in ["entity_to_entity", "entity", "direct"]:
+                from functions.map_relationships.entity_to_entity import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif rel_lower in ["access_patterns", "access", "patterns", "behavior"]:
+                from functions.map_relationships.access_patterns import execute
+                result = await execute(self.opensearch_client, params)
+                
+            elif rel_lower in ["activity_correlation", "correlation", "activity", "activities"]:
+                from functions.map_relationships.activity_correlation import execute
+                result = await execute(self.opensearch_client, params)
+                
+            else:
+                # Default to entity_to_entity for unknown types
+                logger.warning("Unknown relationship type, defaulting to entity_to_entity", 
+                             relationship_type=relationship_type)
+                from functions.map_relationships.entity_to_entity import execute
+                result = await execute(self.opensearch_client, params)
             
             logger.info("Relationship mapping completed",
                         source_type=source_type,
                         source_id=source_id,
-                        relationship_type=relationship_type)
+                        relationship_type=relationship_type,
+                        total_results=result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_connections", 
+                                      result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_access_events",
+                                      result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_correlated_activities", 0))))
             
             return result
             
