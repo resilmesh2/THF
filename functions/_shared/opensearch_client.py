@@ -145,13 +145,69 @@ class WazuhOpenSearchClient:
         Convert time range string to OpenSearch query filter
         
         Args:
-            time_range: Time range string (e.g., "7d", "24h", "30m")
+            time_range: Time range string (e.g., "7d", "24h", "30m", "2025-07-24T06:00:00 to 2025-07-24T09:00:00")
             
         Returns:
             OpenSearch time range filter
         """
         try:
-            if time_range.endswith('d'):
+            # Handle absolute time ranges with various formats
+            if any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
+                from datetime import datetime, date
+                today = date.today().strftime("%Y-%m-%d")
+                
+                # Handle format: "today 06:00-09:00"
+                if "today" in time_range.lower() and "-" in time_range:
+                    # Extract the time part after "today"
+                    time_part = time_range.lower().replace("today", "").strip()
+                    if "-" in time_part:
+                        parts = time_part.split("-")
+                        if len(parts) == 2:
+                            start_time = self._parse_time_expression(parts[0].strip(), today)
+                            end_time = self._parse_time_expression(parts[1].strip(), today)
+                            
+                            logger.info("Parsed today time range with dash", 
+                                       original_range=time_range,
+                                       start_time=start_time, 
+                                       end_time=end_time)
+                            
+                            return {
+                                "range": {
+                                    "@timestamp": {
+                                        "gte": start_time,
+                                        "lte": end_time
+                                    }
+                                }
+                            }
+                
+                # Handle format: "time to time" or "time until time"
+                elif " to " in time_range.lower() or " until " in time_range.lower():
+                    separator = " to " if " to " in time_range.lower() else " until "
+                    parts = time_range.split(separator)
+                    if len(parts) == 2:
+                        start_time = parts[0].strip()
+                        end_time = parts[1].strip()
+                        
+                        # Convert time expressions to ISO format
+                        start_time = self._parse_time_expression(start_time, today)
+                        end_time = self._parse_time_expression(end_time, today)
+                        
+                        logger.info("Parsed absolute time range", 
+                                   original_range=time_range,
+                                   start_time=start_time, 
+                                   end_time=end_time)
+                        
+                        return {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": start_time,
+                                    "lte": end_time
+                                }
+                            }
+                        }
+            
+            # Handle relative time ranges
+            elif time_range.endswith('d'):
                 days = int(time_range[:-1])
                 gte = f"now-{days}d"
             elif time_range.endswith('h'):
@@ -191,10 +247,56 @@ class WazuhOpenSearchClient:
                     }
                 }
             }
+    
+    def _parse_time_expression(self, time_expr: str, date_str: str) -> str:
+        """
+        Convert time expression to ISO format
+        
+        Args:
+            time_expr: Time expression like "6 am", "9 am", "06:00:00", etc.
+            date_str: Date string in YYYY-MM-DD format
+            
+        Returns:
+            ISO timestamp string
+        """
+        import re
+        
+        # Remove "today" and other date references
+        time_expr = re.sub(r'\b(today|yesterday|tomorrow)\b', '', time_expr).strip()
+        
+        # Handle 24-hour format like "06:00:00"
+        if re.match(r'^\d{2}:\d{2}:\d{2}$', time_expr):
+            return f"{date_str}T{time_expr}"
+        
+        # Handle shorter 24-hour format like "06:00"
+        if re.match(r'^\d{1,2}:\d{2}$', time_expr):
+            return f"{date_str}T{time_expr}:00"
+        
+        # Parse time expressions like "6 am", "9 am", "2:30 pm"
+        am_pm_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)'
+        match = re.search(am_pm_pattern, time_expr.lower())
+        
+        if match:
+            hour = int(match.group(1))
+            minute = int(match.group(2)) if match.group(2) else 0
+            am_pm = match.group(3)
+            
+            # Convert to 24-hour format
+            if am_pm == 'pm' and hour != 12:
+                hour += 12
+            elif am_pm == 'am' and hour == 12:
+                hour = 0
+                
+            return f"{date_str}T{hour:02d}:{minute:02d}:00"
+        
+        # If parsing fails, try to construct a basic timestamp
+        logger.warning("Could not parse time expression, attempting basic format", 
+                      time_expr=time_expr)
+        return f"{date_str}T{time_expr}"
 
     def build_filters_query(self, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Convert filters dict to OpenSearch query filters
+        Convert filters dict to OpenSearch query filters with intelligent field detection
         
         Args:
             filters: Dictionary of field:value filters
@@ -205,7 +307,42 @@ class WazuhOpenSearchClient:
         query_filters = []
         
         for field, value in filters.items():
-            if isinstance(value, list):
+            # Handle special process filtering with intelligent field detection
+            if field in ["process", "process_name", "executable", "image", "command", "cmd", "binary"] and isinstance(value, str):
+                # Use the same logic as build_entity_query for process names
+                if ('\\' in value or '/' in value):
+                    # Likely executable path
+                    query_filters.append({
+                        "wildcard": {"data.win.eventdata.image": f"*{value}*"}
+                    })
+                else:
+                    # Process name - search across multiple Windows event fields
+                    query_filters.append({
+                        "bool": {
+                            "should": [
+                                {"wildcard": {"data.win.eventdata.image": f"*{value}*"}},
+                                {"wildcard": {"data.win.eventdata.originalFileName": f"*{value}*"}},
+                                {"wildcard": {"data.win.eventdata.commandLine": f"*{value}*"}},
+                                {"wildcard": {"rule.description": f"*{value}*"}}
+                            ],
+                            "minimum_should_match": 1
+                        }
+                    })
+            # Handle host filtering with intelligent field detection
+            elif field in ["host", "host_id", "agent", "agent_id", "hostname", "agent_name"] and isinstance(value, str):
+                import re
+                # Check if value looks like an IP address
+                ip_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
+                if re.match(ip_pattern, value):
+                    query_filters.append({"term": {"agent.ip": value}})
+                # Check if value looks like an agent ID (numbers only)
+                elif value.isdigit():
+                    query_filters.append({"term": {"agent.id": value}})
+                else:
+                    # Default to agent name for hostnames
+                    query_filters.append({"term": {"agent.name": value}})
+            # Standard filtering logic for other fields
+            elif isinstance(value, list):
                 # Multiple values - use terms query
                 query_filters.append({
                     "terms": {field: value}
@@ -418,27 +555,47 @@ class WazuhOpenSearchClient:
         elif entity_type == "process":
             # Check if entity_id looks like a PID (numbers only)
             if entity_id.isdigit():
-                field = "data.win.eventdata.processId"
+                return {"term": {"data.win.eventdata.processId": entity_id}}
             # Check if it looks like a GUID pattern
             elif re.match(r'^{[0-9a-fA-F-]+}$', entity_id):
-                field = "data.win.eventdata.processGuid"
+                return {"term": {"data.win.eventdata.processGuid": entity_id}}
             # Check if it contains path separators (likely executable path)
             elif ('\\' in entity_id or '/' in entity_id):
-                field = "data.win.eventdata.image"
+                return {"wildcard": {"data.win.eventdata.image": f"*{entity_id}*"}}
             else:
-                # Default to process name
-                field = "data.win.eventdata.processName"
+                # For process names, search across multiple Windows event fields
+                return {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"data.win.eventdata.image": f"*{entity_id}*"}},
+                            {"wildcard": {"data.win.eventdata.originalFileName": f"*{entity_id}*"}},
+                            {"wildcard": {"data.win.eventdata.commandLine": f"*{entity_id}*"}},
+                            {"wildcard": {"rule.description": f"*{entity_id}*"}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
                 
         elif entity_type == "service":
             # Check if entity_id looks like a PID (numbers only)
             if entity_id.isdigit():
-                field = "data.win.eventdata.processId"
+                return {"term": {"data.win.eventdata.processId": entity_id}}
             # Check if it contains path separators (likely executable path)
             elif ('\\' in entity_id or '/' in entity_id):
-                field = "data.win.eventdata.image"
+                return {"wildcard": {"data.win.eventdata.image": f"*{entity_id}*"}}
             else:
-                # Default to service/process name
-                field = "data.win.eventdata.processName"
+                # For service names, search across multiple Windows event fields
+                return {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"data.win.eventdata.image": f"*{entity_id}*"}},
+                            {"wildcard": {"data.win.eventdata.originalFileName": f"*{entity_id}*"}},
+                            {"wildcard": {"data.win.eventdata.commandLine": f"*{entity_id}*"}},
+                            {"wildcard": {"rule.description": f"*{entity_id}*"}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
                 
         elif entity_type == "user":
             # Check if entity_id looks like a SID

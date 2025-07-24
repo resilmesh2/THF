@@ -89,7 +89,7 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
     name: str = "investigate_entity"
-    description: str = "Get alerts, activity, status, or details for a specific entity (host, user, process, file, ip). Use this when querying about a specifically identified entity."
+    description: str = "Get alerts, activity, status, or details for a specific entity (host, user, process, file, ip). Use this when querying about a specifically identified entity. Required parameters: entity_type must be one of 'host', 'user', 'process', 'file', or 'ip'; entity_id is the specific identifier (like host ID, username, process name); query_type must be 'alerts', 'activity', 'details', or 'status'. Always provide these as separate structured parameters, not concatenated strings."
     args_schema: Type[InvestigateEntitySchema] = InvestigateEntitySchema
     
     def _run(
@@ -243,7 +243,7 @@ class MapRelationshipsTool(WazuhBaseTool):
 class DetectThreatsTool(WazuhBaseTool):
     """Tool for detecting threats and MITRE ATT&CK techniques"""
     name: str = "detect_threats"
-    description: str = "Identify MITRE ATT&CK tactics, techniques, threat actors, indicator of compromises or activity patterns"
+    description: str = "Detect and analyze MITRE ATT&CK techniques, tactics, threat actors, indicators of compromise, and attack chains. Use threat_type to specify what to detect: 'technique' for specific MITRE techniques (provide technique_id like T1105), 'tactic' for MITRE tactics (provide tactic_name), 'threat_actor' for APT groups (provide actor_name), 'indicators' for IoCs, or 'chains' for attack patterns. Always provide structured parameters separately, not as concatenated strings."
     args_schema: Type[DetectThreatsSchema] = DetectThreatsSchema
     
     def _run(
