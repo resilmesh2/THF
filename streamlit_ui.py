@@ -12,9 +12,9 @@ import os
 def get_logo_path():
     """Get logo file path if it exists"""
     logo_paths = [
-        "assets/images/resmesh-logo.png",
-        "assets/images/resmesh-logo.svg",
-        "assets/images/resmesh-logo.ico"
+        "assets/images/resilmesh_logo.png",
+        "assets/images/resilmesh-logo.svg",
+        "assets/images/resilmesh-logo.ico"
     ]
     for path in logo_paths:
         if os.path.exists(path):
@@ -129,6 +129,18 @@ def reset_session():
         return False
 
 # Main UI
+# Add Resilmesh logo at the top center using get_logo_path function
+main_logo_path = get_logo_path()
+if main_logo_path:
+    # Convert logo to base64 and display as HTML centered above heading
+    try:
+        with open(main_logo_path, "rb") as f:
+            logo_data = base64.b64encode(f.read()).decode()
+        st.markdown(f'<div style="text-align: center; margin-bottom: 1rem;"><img src="data:image/png;base64,{logo_data}" width="200" style="display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
+    except Exception:
+        st.markdown('<div style="text-align: center; margin-bottom: 1rem;"><strong>Resilmesh Logo</strong></div>', unsafe_allow_html=True)
+
+# Main header - keep original format with shield icon
 logo_base64 = get_base64_logo()
 if logo_base64:
     st.markdown(f'<h1 class="main-header"><img src="data:image/png;base64,{logo_base64}" width="40" style="margin-right: 10px; vertical-align: middle;"/>Resilmesh Wazuh Security Assistant</h1>', unsafe_allow_html=True)
@@ -137,18 +149,6 @@ else:
 
 # Sidebar
 with st.sidebar:
-    # Add Resilmesh logo at the top
-    logo_path = "images/resilmesh_logo.png"
-    if os.path.exists(logo_path):
-        # Convert logo to base64 and display as HTML to prevent expansion
-        try:
-            with open(logo_path, "rb") as f:
-                logo_data = base64.b64encode(f.read()).decode()
-            st.markdown(f'<img src="data:image/png;base64,{logo_data}" width="150" style="display: block; margin: 0 auto;">', unsafe_allow_html=True)
-        except Exception:
-            st.markdown("**Resilmesh Logo**")
-        st.markdown("---")  # Add separator line after logo
-    
     st.header("Configuration")
 
     # API Status
