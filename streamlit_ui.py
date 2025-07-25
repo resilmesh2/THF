@@ -91,6 +91,8 @@ if 'messages' not in st.session_state:
     st.session_state.messages = []
 if 'session_id' not in st.session_state:
     st.session_state.session_id = f"session_{int(time.time())}"
+if 'last_query' not in st.session_state:
+    st.session_state.last_query = ""
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
@@ -205,25 +207,22 @@ current_query = st.session_state.get('current_query', '')
 if current_query:
     st.session_state.current_query = ''  # Clear after use
 
-query = st.text_area(
+query = st.text_input(
     "Enter your security question:",
     value=current_query,
-    height=100,
-    placeholder="e.g., Show me the top 10 hosts with most alerts this week..."
+    placeholder="e.g., Show me the top 10 hosts with most alerts this week...",
+    key="query_input"
 )
 
-col1, col2 = st.columns([1, 4])
+if st.button("📋 Clear History"):
+    st.session_state.messages = []
+    st.rerun()
 
-with col1:
-    submit_button = st.button("🔍 Ask", type="primary")
-
-with col2:
-    if st.button("📋 Clear History"):
-        st.session_state.messages = []
-        st.rerun()
-
-# Process query
-if submit_button and query.strip():
+# Process query - automatically submit on Enter
+if query and query.strip() and query != st.session_state.last_query:
+    # Update last query to prevent duplicate submissions
+    st.session_state.last_query = query
+    
     # Add user message to history
     st.session_state.messages.append({
         "role": "user",
@@ -250,7 +249,7 @@ if submit_button and query.strip():
             "timestamp": datetime.now().strftime("%H:%M:%S")
         })
 
-    # Clear the input
+    # Rerun to update the interface
     st.rerun()
 
 # Display conversation history
@@ -287,7 +286,7 @@ with st.expander("ℹ️ Help & Examples"):
     st.markdown("""
     ### How to Use
     1. **Start the API server** first: `python main.py`
-    2. **Ask security questions** in natural language
+    2. **Ask security questions** in natural language and press Enter to submit
     3. **Use example queries** from the sidebar for quick start
     4. **Reset session** to clear conversation history
 
