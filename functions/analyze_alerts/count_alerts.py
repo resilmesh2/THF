@@ -23,6 +23,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         time_range = params.get("time_range", "7d")
         filters = params.get("filters", {})
         
+        # Handle case where filters is None
+        if filters is None:
+            filters = {}
+        
         # Handle separate time_start and time_end parameters from LLM
         time_start = filters.pop("time_start", None)
         time_end = filters.pop("time_end", None)

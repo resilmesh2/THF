@@ -140,12 +140,8 @@ if main_logo_path:
     except Exception:
         st.markdown('<div style="text-align: center; margin-bottom: 1rem;"><strong>Resilmesh Logo</strong></div>', unsafe_allow_html=True)
 
-# Main header - keep original format with shield icon
-logo_base64 = get_base64_logo()
-if logo_base64:
-    st.markdown(f'<h1 class="main-header"><img src="data:image/png;base64,{logo_base64}" width="40" style="margin-right: 10px; vertical-align: middle;"/>Resilmesh Wazuh Security Assistant</h1>', unsafe_allow_html=True)
-else:
-    st.markdown('<h1 class="main-header">🛡️ Resilmesh Wazuh Security Assistant</h1>', unsafe_allow_html=True)
+# Main header - always use shield icon
+st.markdown('<h1 class="main-header">🛡️ Resilmesh Wazuh Security Assistant</h1>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
