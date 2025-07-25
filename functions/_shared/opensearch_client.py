@@ -339,8 +339,60 @@ class WazuhOpenSearchClient:
                 elif value.isdigit():
                     query_filters.append({"term": {"agent.id": value}})
                 else:
-                    # Default to agent name for hostnames
-                    query_filters.append({"term": {"agent.name": value}})
+                    # Search across multiple hostname fields
+                    query_filters.append({
+                        "bool": {
+                            "should": [
+                                {"term": {"agent.name": value}},
+                                {"term": {"data.os.hostname": value}}
+                            ],
+                            "minimum_should_match": 1
+                        }
+                    })
+            # Handle OS-specific filtering
+            elif field in ["os", "os_name", "operating_system"] and isinstance(value, str):
+                query_filters.append({"term": {"data.os.name": value}})
+            elif field in ["os_version", "version"] and isinstance(value, str):
+                query_filters.append({"term": {"data.os.version": value}})
+            elif field in ["fqdn", "fully_qualified_domain_name"] and isinstance(value, str):
+                query_filters.append({"term": {"data.os.hostname": value}})
+            # Handle file filtering with intelligent field detection
+            elif field in ["file", "file_name", "file_path", "filename", "filepath"] and isinstance(value, str):
+                import re
+                # Check if value contains path separators (likely full file path)
+                if ('\\' in value or '/' in value):
+                    query_filters.append({
+                        "bool": {
+                            "should": [
+                                {"wildcard": {"data.win.eventdata.targetFilename": f"*{value}*"}},
+                                {"wildcard": {"syscheck.path": f"*{value}*"}},
+                                {"wildcard": {"data.file.path": f"*{value}*"}}
+                            ],
+                            "minimum_should_match": 1
+                        }
+                    })
+                # Check if it looks like a hash
+                elif re.match(r'^[a-fA-F0-9]{32}$', value):
+                    # MD5 hash
+                    query_filters.append({"term": {"syscheck.md5_after": value.lower()}})
+                elif re.match(r'^[a-fA-F0-9]{40}$', value):
+                    # SHA1 hash
+                    query_filters.append({"term": {"syscheck.sha1_after": value.lower()}})
+                elif re.match(r'^[a-fA-F0-9]{64}$', value):
+                    # SHA256 hash
+                    query_filters.append({"term": {"syscheck.sha256_after": value.lower()}})
+                else:
+                    # For file names, search across multiple file name fields
+                    query_filters.append({
+                        "bool": {
+                            "should": [
+                                {"wildcard": {"data.file.name": f"*{value}*"}},
+                                {"wildcard": {"syscheck.path": f"*{value}*"}},
+                                {"wildcard": {"data.win.eventdata.targetFilename": f"*{value}*"}}
+                            ],
+                            "minimum_should_match": 1
+                        }
+                    })
             # Standard filtering logic for other fields
             elif isinstance(value, list):
                 # Multiple values - use terms query
@@ -516,13 +568,27 @@ class WazuhOpenSearchClient:
                 "name": "agent.name",
                 "ip": "agent.ip",
                 "id": "agent.id",
-                "manager": "manager.name"
+                "manager": "manager.name",
+                # Additional OS fields from mapping file
+                "hostname": "data.os.hostname",
+                "os_name": "data.os.name",
+                "os_version": "data.os.version",
+                "fqdn": "data.os.hostname"
             },
             "file": {
                 "name": "data.file.name",
                 "path": "data.file.path",
                 "size": "data.file.size",
-                "hash": "data.file.hash"
+                "hash": "data.file.hash",
+                # Additional fields from mapping file
+                "file_name": "syscheck.path",
+                "file_path": "data.win.eventdata.targetFilename",
+                "size_after": "syscheck.size_after",
+                "creation": "syscheck.mtime_after",
+                "owner": "syscheck.uname_after",
+                "mode": "syscheck.perm_after",
+                "content": "syscheck.diff",
+                "signature_valid": "data.win.eventdata.status"
             }
         }
 
@@ -549,8 +615,16 @@ class WazuhOpenSearchClient:
             elif entity_id.isdigit():
                 field = "agent.id"
             else:
-                # Default to agent name for hostnames
-                field = "agent.name"
+                # Search across multiple hostname fields including OS hostname
+                return {
+                    "bool": {
+                        "should": [
+                            {"term": {"agent.name": entity_id}},
+                            {"term": {"data.os.hostname": entity_id}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
                 
         elif entity_type == "process":
             # Check if entity_id looks like a PID (numbers only)
@@ -607,6 +681,43 @@ class WazuhOpenSearchClient:
             else:
                 # Default to username
                 field = "data.win.eventdata.targetUserName"
+                
+        elif entity_type == "file":
+            # Check if entity_id contains path separators (likely full file path)
+            if ('\\' in entity_id or '/' in entity_id):
+                # Search across multiple file path fields
+                return {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"data.win.eventdata.targetFilename": f"*{entity_id}*"}},
+                            {"wildcard": {"syscheck.path": f"*{entity_id}*"}},
+                            {"wildcard": {"data.file.path": f"*{entity_id}*"}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
+            # Check if it looks like a hash (MD5: 32 chars, SHA1: 40 chars, SHA256: 64 chars)
+            elif re.match(r'^[a-fA-F0-9]{32}$', entity_id):
+                # MD5 hash
+                return {"term": {"syscheck.md5_after": entity_id.lower()}}
+            elif re.match(r'^[a-fA-F0-9]{40}$', entity_id):
+                # SHA1 hash
+                return {"term": {"syscheck.sha1_after": entity_id.lower()}}
+            elif re.match(r'^[a-fA-F0-9]{64}$', entity_id):
+                # SHA256 hash (if available)
+                return {"term": {"syscheck.sha256_after": entity_id.lower()}}
+            else:
+                # For file names, search across multiple file name fields
+                return {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"data.file.name": f"*{entity_id}*"}},
+                            {"wildcard": {"syscheck.path": f"*{entity_id}*"}},
+                            {"wildcard": {"data.win.eventdata.targetFilename": f"*{entity_id}*"}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
                 
         else:
             # Use regular field mappings for other entity types
