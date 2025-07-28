@@ -158,6 +158,12 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             technique = rule.get("mitre", {}).get("technique")
             tactic = rule.get("mitre", {}).get("tactic")
             
+            # Handle technique and tactic as lists or strings
+            if isinstance(technique, list):
+                technique = technique[0] if technique else None
+            if isinstance(tactic, list):
+                tactic = tactic[0] if tactic else None
+            
             if technique and agent.get("name"):
                 events_by_host[agent["name"]].append({
                     "timestamp": source.get("@timestamp"),

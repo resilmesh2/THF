@@ -243,7 +243,7 @@ class MapRelationshipsTool(WazuhBaseTool):
 class DetectThreatsTool(WazuhBaseTool):
     """Tool for detecting threats and MITRE ATT&CK techniques"""
     name: str = "detect_threats"
-    description: str = "Detect and analyze MITRE ATT&CK techniques, tactics, threat actors, indicators of compromise, and attack chains. Use threat_type to specify what to detect: 'technique' for specific MITRE techniques (provide technique_id like T1105), 'tactic' for MITRE tactics (provide tactic_name), 'threat_actor' for APT groups (provide actor_name), 'indicators' for IoCs, or 'chains' for attack patterns. Always provide structured parameters separately, not as concatenated strings."
+    description: str = "Detect and analyze MITRE ATT&CK techniques, tactics, threat actors, indicators of compromise, and attack chains across your entire dataset. Use threat_type to specify what to detect: 'technique' for specific MITRE techniques (provide technique_id like T1105), 'tactic' for MITRE tactics (provide tactic_name), 'threat_actor' for APT groups (provide actor_name), 'indicators' for IoCs, or 'chains' to discover attack sequences and technique progressions. Use 'chains' for queries like 'find attack chains', 'show attack patterns', 'complete attack sequence', or 'incidents'. Always provide structured parameters separately, not as concatenated strings."
     args_schema: Type[DetectThreatsSchema] = DetectThreatsSchema
     
     def _run(
@@ -415,7 +415,7 @@ class FindAnomaliesTool(WazuhBaseTool):
 class TraceTimelineTool(WazuhBaseTool):
     """Tool for reconstructing event timelines"""
     name: str = "trace_timeline"
-    description: str = "Reconstruct chronological timeline of events for entities or incidents. Use for attack chain analysis, event sequences, and temporal correlation. View types: 'sequence' (chronological event display), 'progression' (attack chain analysis and MITRE ATT&CK progression tracing - optimized for shorter time windows like 1-3 days), 'temporal' (event correlation by time proximity). Use 'progression' for queries like 'trace attack path', 'attack chain analysis', 'complete attack sequence', or 'from initial access to exfiltration'. For large time ranges, consider using entity filters to narrow the scope."
+    description: str = "Reconstruct chronological timeline of events for specific entities or known incidents. Use when you need to trace how events evolved over time for identified entities. View types: 'sequence' (chronological event display), 'progression' (trace attack evolution and technique progression for specific entities - optimized for shorter time windows like 1-3 days), 'temporal' (event correlation by time proximity). Use 'progression' for queries like 'trace attack evolution on host X', 'show progression for user Y', or 'timeline of events for entity Z'. For large time ranges, consider using entity filters to narrow the scope."
     args_schema: Type[TraceTimelineSchema] = TraceTimelineSchema
     
     def _run(
@@ -472,7 +472,7 @@ class TraceTimelineTool(WazuhBaseTool):
                 from functions.trace_timeline.show_sequence import execute
                 result = await execute(self.opensearch_client, params)
                 
-            elif view_lower in ["progression", "trace_progression", "attack", "chain"]:
+            elif view_lower in ["progression", "trace_progression", "evolution", "develop"]:
                 from functions.trace_timeline.trace_progression import execute
                 result = await execute(self.opensearch_client, params)
                 
