@@ -71,14 +71,6 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "field": "rule.id",
                         "size": 10,
                         "order": {"_count": "desc"}
-                    },
-                    "aggs": {
-                        "rule_description": {
-                            "top_hits": {
-                                "size": 1,
-                                "_source": ["rule.description", "rule.level"]
-                            }
-                        }
                     }
                 },
                 "hourly_distribution": {
@@ -143,13 +135,6 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "rule_id": bucket["key"],
                 "count": bucket["doc_count"]
             }
-            
-            # Get rule description from top hit
-            if bucket["rule_description"]["hits"]["hits"]:
-                rule_source = bucket["rule_description"]["hits"]["hits"][0]["_source"]
-                rule_data["description"] = rule_source.get("rule", {}).get("description", "")
-                rule_data["level"] = rule_source.get("rule", {}).get("level", 0)
-            
             top_rules.append(rule_data)
         
         # Process hourly distribution
