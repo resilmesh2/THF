@@ -12,6 +12,7 @@ class AlertAction(str, Enum):
     FILTERING = "filtering" 
     COUNTING = "counting"
     DISTRIBUTION = "distribution"
+    STACKING = "stacking"
 
 
 class EntityType(str, Enum):

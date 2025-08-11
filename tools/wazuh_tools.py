@@ -27,7 +27,7 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns)."
+    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns), 'stacking' (time-series visualization data)."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(
@@ -63,6 +63,8 @@ class AnalyzeAlertsTool(WazuhBaseTool):
                 from functions.analyze_alerts.filter_alerts import execute
             elif action == "distribution":
                 from functions.analyze_alerts.distribution_alerts import execute
+            elif action == "stacking":
+                from functions.analyze_alerts.stack_alerts import execute
             else:
                 raise ValueError(f"Unknown action: {action}")
             
@@ -72,6 +74,14 @@ class AnalyzeAlertsTool(WazuhBaseTool):
                 "limit": limit,
                 "time_range": time_range
             }
+            
+            # Add stacking-specific parameters if action is stacking
+            if action == "stacking":
+                # Map group_by to stack_dimension for stacking
+                params["stack_dimension"] = group_by if group_by else "severity"
+                params["time_interval"] = "1h"  # Default time interval
+                params["stack_limit"] = limit
+                params["cumulative"] = False
             
             result = await execute(self.opensearch_client, params)
             

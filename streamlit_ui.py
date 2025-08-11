@@ -7,6 +7,9 @@ from datetime import datetime
 import time
 import base64
 import os
+import json
+import plotly.express as px
+import pandas as pd
 
 # Logo helper function
 def get_logo_path():
@@ -128,6 +131,158 @@ def reset_session():
     except requests.exceptions.RequestException:
         return False
 
+def extract_stacked_data_from_response(response_text):
+    """Extract structured stacked visualization data from LLM response"""
+    try:
+        # Look for JSON-like structures in the response
+        lines = response_text.split('\n')
+        json_start = -1
+        json_end = -1
+        
+        for i, line in enumerate(lines):
+            if '{' in line and ('stack_analysis' in line or 'stacked_data' in line or 'visualization_config' in line):
+                json_start = i
+                break
+        
+        if json_start == -1:
+            return None
+            
+        # Find the end of the JSON block
+        brace_count = 0
+        for i in range(json_start, len(lines)):
+            line = lines[i]
+            brace_count += line.count('{') - line.count('}')
+            if brace_count == 0 and '}' in line:
+                json_end = i
+                break
+        
+        if json_end == -1:
+            return None
+            
+        # Extract and parse JSON
+        json_text = '\n'.join(lines[json_start:json_end + 1])
+        return json.loads(json_text)
+        
+    except Exception:
+        return None
+
+def render_stacked_chart(stacked_data_structure):
+    """Render a stacked bar chart from the structured visualization data"""
+    try:
+        if not stacked_data_structure:
+            return None
+            
+        # Extract data
+        stack_analysis = stacked_data_structure.get('stack_analysis', {})
+        stacked_data = stacked_data_structure.get('stacked_data', [])
+        visualization_config = stacked_data_structure.get('visualization_config', {})
+        stack_summary = stacked_data_structure.get('stack_summary', {})
+        
+        if not stacked_data:
+            return None
+            
+        # Prepare data for plotting
+        chart_data = []
+        for bucket in stacked_data:
+            timestamp = bucket.get('timestamp', '')
+            time_bucket = bucket.get('time_bucket', 'Current Period')
+            stack_breakdown = bucket.get('stack_breakdown', {})
+            
+            for category, count in stack_breakdown.items():
+                chart_data.append({
+                    'Time': time_bucket,
+                    'Category': category,
+                    'Count': count,
+                    'Timestamp': timestamp
+                })
+        
+        if not chart_data:
+            return None
+            
+        df = pd.DataFrame(chart_data)
+        
+        # Get colors from config
+        colors = visualization_config.get('color_palette', [])
+        if not colors:
+            colors = px.colors.qualitative.Set1
+            
+        # Create stacked bar chart
+        fig = px.bar(
+            df, 
+            x='Time', 
+            y='Count',
+            color='Category',
+            title=f"Stacked {stack_analysis.get('stack_dimension', 'Alert').title()} Analysis",
+            color_discrete_sequence=colors,
+            hover_data=['Timestamp']
+        )
+        
+        # Update layout
+        fig.update_layout(
+            xaxis_title="Time Period",
+            yaxis_title="Alert Count",
+            legend_title=f"{stack_analysis.get('stack_dimension', 'Dimension').title()}",
+            height=500,
+            showlegend=True
+        )
+        
+        return fig, stack_summary
+        
+    except Exception as e:
+        st.error(f"Error rendering chart: {str(e)}")
+        return None
+
+def display_stack_summary(stack_summary):
+    """Display summary statistics for the stacked chart"""
+    if not stack_summary:
+        return
+        
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "Peak Activity", 
+            stack_summary.get('peak_total', 0),
+            help="Maximum alerts in a single time period"
+        )
+    
+    with col2:
+        st.metric(
+            "Dominant Category", 
+            stack_summary.get('dominant_category', 'Unknown'),
+            help="Category with highest alert count"
+        )
+        
+    with col3:
+        temporal_dist = stack_summary.get('temporal_distribution', 'unknown')
+        st.metric(
+            "Distribution", 
+            temporal_dist.title(),
+            help="Pattern of alert distribution over time"
+        )
+    
+    # Show category percentages
+    category_percentages = stack_summary.get('category_percentages', {})
+    if category_percentages:
+        st.subheader("Category Breakdown")
+        
+        # Create a simple bar chart for percentages
+        perc_df = pd.DataFrame([
+            {'Category': cat, 'Percentage': perc} 
+            for cat, perc in category_percentages.items()
+        ])
+        
+        fig_perc = px.bar(
+            perc_df, 
+            x='Category', 
+            y='Percentage',
+            title="Alert Distribution by Category (%)",
+            text='Percentage'
+        )
+        fig_perc.update_traces(texttemplate='%{text}%', textposition='outside')
+        fig_perc.update_layout(height=300)
+        st.plotly_chart(fig_perc, use_container_width=True)
+
 # Main UI
 # Add Resilmesh logo at the top center using get_logo_path function
 main_logo_path = get_logo_path()
@@ -174,9 +329,12 @@ with st.sidebar:
 
     example_queries = [
         "Show me the top 10 hosts with most alerts this week",
+        "Create hourly stacked chart of top 5 hosts generating alerts",
+        "Generate stacked visualization of alert severity over last 24 hours",
         "What alerts are there for user admin?",
         "Find hosts with more than 50 failed login attempts",
         "Show me critical alerts from the last hour",
+        "Create stacked chart showing rule types distribution",
         "Which agents are disconnected?",
         "Find authentication failures in the last 24 hours"
     ]
@@ -273,7 +431,29 @@ if st.session_state.messages:
                         with st.expander("Error Details"):
                             st.text(message["details"])
                 else:
-                    st.markdown(f'<div class="response-container">{message["content"]}</div>', unsafe_allow_html=True)
+                    # Check if the response contains stacked visualization data
+                    if message["role"] == "assistant":
+                        stacked_data = extract_stacked_data_from_response(message["content"])
+                        if stacked_data:
+                            # Display the chart first
+                            chart_result = render_stacked_chart(stacked_data)
+                            if chart_result:
+                                fig, stack_summary = chart_result
+                                st.plotly_chart(fig, use_container_width=True)
+                                
+                                # Display summary metrics
+                                display_stack_summary(stack_summary)
+                                
+                                # Show a condensed version of the text response
+                                st.markdown(f'<div class="response-container">{message["content"]}</div>', unsafe_allow_html=True)
+                            else:
+                                # Fallback to text only
+                                st.markdown(f'<div class="response-container">{message["content"]}</div>', unsafe_allow_html=True)
+                        else:
+                            # Regular text response
+                            st.markdown(f'<div class="response-container">{message["content"]}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="response-container">{message["content"]}</div>', unsafe_allow_html=True)
 
             st.markdown("---")
 

@@ -499,6 +499,36 @@ class WazuhOpenSearchClient:
             logger.error("OpenSearch connection test failed", error=str(e))
             return False
 
+    async def execute_ppl_query(self, ppl_query: str) -> Dict[str, Any]:
+        """
+        Execute PPL (Piped Processing Language) query against OpenSearch
+        
+        Args:
+            ppl_query: PPL query string
+            
+        Returns:
+            PPL query results as JSON
+        """
+        try:
+            logger.debug("Executing PPL query", query=ppl_query[:100] + "..." if len(ppl_query) > 100 else ppl_query)
+            
+            response = await self.client.transport.perform_request(
+                method='POST',
+                url='/_plugins/_ppl',
+                headers={'Content-Type': 'application/json'},
+                body={'query': ppl_query}
+            )
+            
+            logger.info("PPL query executed successfully", 
+                       total_results=response.get('total', 0),
+                       returned_rows=len(response.get('datarows', [])))
+            
+            return response
+            
+        except Exception as e:
+            logger.error("PPL query execution failed", error=str(e), query=ppl_query)
+            raise Exception(f"Failed to execute PPL query: {str(e)}")
+
     async def close(self):
         """Close the OpenSearch client connection"""
         try:
