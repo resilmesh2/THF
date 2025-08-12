@@ -393,6 +393,13 @@ class WazuhOpenSearchClient:
                             "minimum_should_match": 1
                         }
                     })
+                # Handle rule filtering
+            elif field in ["rule_id", "rule", "ruleid"] and isinstance(value, str):
+                query_filters.append({"term": {"rule.id": value}})
+            elif field in ["rule_level", "severity", "level"] and isinstance(value, (str, int)):
+                query_filters.append({"term": {"rule.level": int(value)}})
+            elif field in ["rule_group", "rule_groups", "group", "groups"] and isinstance(value, str):
+                query_filters.append({"term": {"rule.groups": value}})
             # Standard filtering logic for other fields
             elif isinstance(value, list):
                 # Multiple values - use terms query
