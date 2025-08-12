@@ -27,7 +27,7 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns)."
+    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis like 'severity,host' or 'severity,time' for cross-correlations. Keywords triggering multi-dimensional: 'by X and Y', 'correlate X with Y', 'cross-dimensional analysis'."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(

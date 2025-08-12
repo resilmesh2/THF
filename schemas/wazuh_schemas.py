@@ -79,7 +79,7 @@ class AgentMonitorAction(str, Enum):
 class AnalyzeAlertsSchema(BaseModel):
     """Schema for analyze_alerts function"""
     action: AlertAction = Field(description="Type of analysis to perform")
-    group_by: Optional[str] = Field(default=None, description="Field to group results by")
+    group_by: Optional[str] = Field(default=None, description="Field(s) to group results by. Single dimension: 'severity', 'host', 'rule', 'time', 'user', 'process', 'threat group', 'geography'. Multi-dimensional: 'severity,host', 'severity,time', 'rule,host' for cross-correlations. Use comma-separated values for multi-criteria analysis.")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="Filters to apply")
     limit: Optional[int] = Field(default=10, description="Maximum number of results")
     time_range: Optional[str] = Field(default="7d", description="Time range for analysis")
