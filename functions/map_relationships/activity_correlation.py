@@ -1,24 +1,24 @@
 """
-Correlate activities and behaviors across multiple entities
+Correlate activities and behaviors across entities using OpenSearch aggregations
 """
 from typing import Dict, Any, List, Optional
 import structlog
 from datetime import datetime
-from collections import defaultdict, Counter
+from collections import defaultdict
 
 logger = structlog.get_logger()
 
 
 async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Correlate activities and behaviors across multiple entities
+    Correlate activities and behaviors using aggregation-based approach
     
     Args:
         opensearch_client: OpenSearch client instance
         params: Parameters including source_type, source_id, target_type, timeframe
         
     Returns:
-        Activity correlation analysis with behavioral patterns
+        Activity correlation analysis with temporal clustering and behavioral patterns
     """
     try:
         # Extract parameters
@@ -27,7 +27,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         target_type = params.get("target_type")
         timeframe = params.get("timeframe", "24h")
         
-        logger.info("Executing activity correlation analysis", 
+        logger.info("Executing aggregated activity correlation analysis", 
                    source_type=source_type,
                    source_id=source_id,
                    target_type=target_type,
@@ -36,57 +36,124 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         # Build time range filter
         time_filter = opensearch_client.build_time_range_filter(timeframe)
         
-        # Build the search query focused on correlated activities
-        query = _build_activity_correlation_query(source_type, source_id, target_type, time_filter)
+        # Build aggregation-based query
+        query = _build_correlation_aggregation_query(source_type, source_id, target_type, time_filter)
         
-        # Execute search
+        # Execute search with aggregations
         response = await opensearch_client.search(
             index=opensearch_client.alerts_index,
-            query=query
+            query=query,
+            size=0  # Only aggregations needed
         )
         
-        # Process results
-        hits = response.get("hits", {})
-        total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
-        events = hits.get("hits", [])
+        # Process aggregation results
+        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        aggregations = response.get("aggregations", {})
         
-        logger.info("Retrieved events for activity correlation analysis", count=len(events), total=total_alerts)
+        logger.info("Retrieved aggregated correlation data", total_alerts=total_alerts)
         
-        # Process activity correlations
+        # Process correlation results
         correlation_events = []
         correlation_summary = {
             "source_entity": {"type": source_type, "id": source_id},
-            "total_correlated_activities": len(events),
+            "total_correlated_activities": total_alerts,
             "timeframe": timeframe,
             "activity_types": set(),
             "correlated_entities": set(),
-            "temporal_clusters": defaultdict(int)
+            "temporal_clusters": {},
+            "correlation_strength": {}
         }
         
-        for hit in events:
-            source = hit.get("_source", {})
-            activity_data = _extract_activity_data(source, source_type, source_id, target_type)
-            if activity_data:
-                correlation_events.append(activity_data)
-                correlation_summary["activity_types"].add(activity_data["activity_type"])
-                correlation_summary["correlated_entities"].add(f"{activity_data['correlated_entity']['type']}:{activity_data['correlated_entity']['id']}")
+        # Process temporal correlation data
+        if "temporal_correlation" in aggregations:
+            for time_bucket in aggregations["temporal_correlation"]["buckets"]:
+                timestamp = time_bucket["key_as_string"]
+                activity_count = time_bucket["doc_count"]
                 
-                # Group by time clusters (30-minute windows)
-                try:
-                    dt = datetime.fromisoformat(activity_data["timestamp"].replace('Z', '+00:00'))
-                    time_cluster = dt.replace(minute=0 if dt.minute < 30 else 30, second=0, microsecond=0)
-                    correlation_summary["temporal_clusters"][time_cluster.isoformat()] += 1
-                except (ValueError, AttributeError):
-                    pass
+                correlation_summary["temporal_clusters"][timestamp] = activity_count
+                
+                # Process entities active in this time window
+                if "active_entities" in time_bucket:
+                    for entity_bucket in time_bucket["active_entities"]["buckets"]:
+                        entity_name = entity_bucket["key"]
+                        entity_activity = entity_bucket["doc_count"]
+                        
+                        # Get activity types for this entity in this time window
+                        activity_types = [b["key"] for b in entity_bucket.get("activity_types", {}).get("buckets", [])]
+                        
+                        # Get correlation significance
+                        significance_score = entity_bucket.get("correlation_significance", {}).get("value", 0)
+                        
+                        # Check for unusual activity patterns
+                        unusual_activities = []
+                        if "unusual_activities" in entity_bucket:
+                            unusual_activities = [
+                                {"activity": b["key"], "score": b["score"]} 
+                                for b in entity_bucket["unusual_activities"]["buckets"]
+                            ]
+                        
+                        correlation_event = {
+                            "timestamp": timestamp,
+                            "entity": entity_name,
+                            "entity_type": _infer_entity_type(entity_name),
+                            "activity_count": entity_activity,
+                            "activity_types": activity_types,
+                            "correlation_significance": round(significance_score, 3),
+                            "unusual_activities": unusual_activities,
+                            "risk_indicators": _assess_correlation_risk(entity_activity, activity_types, unusual_activities)
+                        }
+                        
+                        correlation_events.append(correlation_event)
+                        correlation_summary["activity_types"].update(activity_types)
+                        correlation_summary["correlated_entities"].add(entity_name)
         
-        # Convert sets to lists for JSON serialization
+        # Process cross-entity correlation analysis
+        cross_entity_correlations = []
+        if "cross_entity_correlation" in aggregations:
+            for composite_bucket in aggregations["cross_entity_correlation"]["buckets"]:
+                entity1 = composite_bucket["key"]["entity1"]
+                entity2 = composite_bucket["key"]["entity2"]
+                correlation_strength = composite_bucket["doc_count"]
+                
+                # Get temporal distribution of this correlation
+                temporal_pattern = []
+                if "correlation_timeline" in composite_bucket:
+                    temporal_pattern = [
+                        {"timestamp": b["key_as_string"], "activity": b["doc_count"]}
+                        for b in composite_bucket["correlation_timeline"]["buckets"]
+                    ]
+                
+                # Get shared activity analysis
+                shared_activities = []
+                if "shared_activities" in composite_bucket:
+                    shared_activities = [
+                        {"activity_type": b["key"], "frequency": b["doc_count"]}
+                        for b in composite_bucket["shared_activities"]["buckets"]
+                    ]
+                
+                cross_correlation = {
+                    "entity1": entity1,
+                    "entity2": entity2,
+                    "correlation_strength": correlation_strength,
+                    "temporal_pattern": temporal_pattern,
+                    "shared_activities": shared_activities,
+                    "correlation_score": min(100, correlation_strength * 2),  # Normalized score
+                    "relationship_type": _determine_relationship_type(shared_activities)
+                }
+                
+                cross_entity_correlations.append(cross_correlation)
+        
+        # Convert sets to lists and add summary statistics
         correlation_summary["activity_types"] = list(correlation_summary["activity_types"])
         correlation_summary["correlated_entities"] = list(correlation_summary["correlated_entities"])
         correlation_summary["unique_entities_count"] = len(correlation_summary["correlated_entities"])
-        correlation_summary["temporal_clusters"] = dict(correlation_summary["temporal_clusters"])
+        correlation_summary["unique_activity_types"] = len(correlation_summary["activity_types"])
+        correlation_summary["cross_entity_correlations"] = len(cross_entity_correlations)
         
-        # Analyze activity correlations
-        correlation_analysis = await _analyze_activity_correlations(correlation_events, source_type)
+        # Generate enhanced correlation analysis
+        correlation_analysis = _analyze_correlation_patterns(
+            correlation_events, cross_entity_correlations, aggregations
+        )
         
         # Build result
         result = {
@@ -100,519 +167,354 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             },
             "correlation_summary": correlation_summary,
             "correlation_events": correlation_events,
+            "cross_entity_correlations": cross_entity_correlations,
             "correlation_analysis": correlation_analysis,
             "behavioral_insights": _generate_correlation_insights(correlation_events, correlation_analysis),
             "recommendations": _generate_correlation_recommendations(correlation_analysis)
         }
         
-        logger.info("Activity correlation analysis completed", 
+        logger.info("Aggregated activity correlation analysis completed", 
                    total_events=len(correlation_events),
-                   unique_entities=len(correlation_summary["correlated_entities"]))
+                   unique_entities=len(correlation_summary["correlated_entities"]),
+                   cross_correlations=len(cross_entity_correlations))
         
         return result
         
     except Exception as e:
-        logger.error("Activity correlation analysis failed", error=str(e))
+        logger.error("Aggregated activity correlation analysis failed", error=str(e))
         raise Exception(f"Failed to analyze activity correlations: {str(e)}")
 
 
-def _build_activity_correlation_query(source_type: str, source_id: str, target_type: Optional[str], time_filter: Dict[str, Any]) -> Dict[str, Any]:
-    """Build search query focused on correlated activities"""
+def _build_correlation_aggregation_query(source_type: str, source_id: str, target_type: Optional[str], time_filter: Dict[str, Any]) -> Dict[str, Any]:
+    """Build aggregation query for correlation analysis"""
+    
+    # Build source entity filter if specified
+    must_conditions = [time_filter]
+    if source_id:
+        source_filters = _get_entity_filters(source_type, source_id)
+        must_conditions.extend(source_filters)
     
     query = {
         "query": {
             "bool": {
-                "must": [time_filter],
+                "must": must_conditions,
                 "should": [
-                    # System activities
                     {"terms": {"rule.groups": ["audit", "system", "process", "network"]}},
-                    # Authentication and access events
                     {"terms": {"rule.groups": ["authentication", "pam", "ssh", "login", "logon"]}},
-                    # File system activities
                     {"terms": {"rule.groups": ["syscheck", "file_integrity", "fim"]}},
-                    # Windows security events
                     {"bool": {"must": [
                         {"terms": {"rule.groups": ["windows", "security"]}},
                         {"exists": {"field": "data.win.eventdata"}}
                     ]}},
-                    # Network connections and communications
                     {"bool": {"must": [
                         {"exists": {"field": "data.srcip"}},
                         {"range": {"rule.level": {"gte": 2}}}
-                    ]}},
-                    # Process execution and command line activity
-                    {"bool": {"must": [
-                        {"terms": {"rule.groups": ["process", "execution"]}},
-                        {"exists": {"field": "data.win.eventdata.commandLine"}}
                     ]}}
                 ],
                 "minimum_should_match": 1
             }
         },
-        "sort": [{"@timestamp": {"order": "asc"}}],
-        "size": 800,
-        "_source": [
-            "@timestamp", "rule.description", "rule.level", "rule.id",
-            "agent.name", "agent.id", "agent.ip",
-            "data.srcip", "data.dstip", "data.srcuser", "data.dstuser",
-            "data.command", "data.process", "data.protocol",
-            "data.win.eventdata.commandLine", "data.win.eventdata.image",
-            "data.win.eventdata.targetUserName", "data.win.eventdata.subjectUserName",
-            "data.win.eventdata.targetFilename", "data.win.eventdata.processId",
-            "rule.groups", "location", "decoder.name"
-        ]
+        "aggs": {
+            "temporal_correlation": {
+                "date_histogram": {
+                    "field": "@timestamp",
+                    "interval": "15m",
+                    "min_doc_count": 1
+                },
+                "aggs": {
+                    "active_entities": {
+                        "terms": {
+                            "field": "agent.name",
+                            "size": 50
+                        },
+                        "aggs": {
+                            "activity_types": {
+                                "terms": {"field": "rule.groups", "size": 10}
+                            },
+                            "correlation_significance": {
+                                "bucket_script": {
+                                    "buckets_path": {"doc_count": "_count"},
+                                    "script": "Math.log(params.doc_count + 1)"
+                                }
+                            },
+                            "unusual_activities": {
+                                "significant_terms": {
+                                    "field": "rule.groups",
+                                    "background_filter": {
+                                        "range": {"@timestamp": {"gte": "now-7d", "lte": "now-1h"}}
+                                    }
+                                }
+                            },
+                            "severity_profile": {
+                                "histogram": {"field": "rule.level", "interval": 1}
+                            }
+                        }
+                    },
+                    "activity_burst_detection": {
+                        "bucket_script": {
+                            "buckets_path": {"doc_count": "_count"},
+                            "script": "params.doc_count > 50 ? params.doc_count : 0"
+                        }
+                    }
+                }
+            },
+            "cross_entity_correlation": {
+                "composite": {
+                    "sources": [
+                        {"entity1": {"terms": {"field": "agent.name"}}},
+                        {"entity2": {"terms": {"field": "data.win.eventdata.targetUserName"}}}
+                    ],
+                    "size": 100
+                },
+                "aggs": {
+                    "correlation_timeline": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "interval": "30m"
+                        }
+                    },
+                    "shared_activities": {
+                        "terms": {"field": "rule.groups", "size": 10}
+                    },
+                    "correlation_strength": {
+                        "bucket_script": {
+                            "buckets_path": {"doc_count": "_count"},
+                            "script": "Math.sqrt(params.doc_count)"
+                        }
+                    }
+                }
+            },
+            "behavioral_clustering": {
+                "terms": {
+                    "field": "data.win.eventdata.targetUserName",
+                    "size": 30
+                },
+                "aggs": {
+                    "host_diversity": {
+                        "cardinality": {"field": "agent.name"}
+                    },
+                    "activity_pattern": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "interval": "1h"
+                        }
+                    },
+                    "risk_indicators": {
+                        "filters": {
+                            "filters": {
+                                "after_hours": {
+                                    "bool": {
+                                        "should": [
+                                            {"range": {"@timestamp": {"gte": "now/d", "lte": "now/d+6h"}}},
+                                            {"range": {"@timestamp": {"gte": "now/d+20h", "lte": "now/d+24h"}}}
+                                        ]
+                                    }
+                                },
+                                "high_severity": {
+                                    "range": {"rule.level": {"gte": 8}}
+                                },
+                                "failed_activities": {
+                                    "wildcard": {"rule.description": "*failed*"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-    
-    # Add source entity filter
-    source_filter = _get_source_entity_filter(source_type, source_id)
-    if source_filter:
-        query["query"]["bool"]["must"].append(source_filter)
     
     return query
 
 
-def _get_source_entity_filter(source_type: str, source_id: str) -> Optional[Dict[str, Any]]:
-    """Get filter for source entity"""
+def _get_entity_filters(entity_type: str, entity_id: str) -> List[Dict[str, Any]]:
+    """Get filters for specific entity type"""
+    filters = []
     
-    if source_type.lower() == "host":
-        return {"bool": {"should": [
-            {"term": {"agent.name": source_id}},
-            {"term": {"agent.ip": source_id}},
-            {"wildcard": {"agent.name": f"*{source_id}*"}}
-        ]}}
-        
-    elif source_type.lower() == "user":
-        return {"bool": {"should": [
-            {"wildcard": {"data.srcuser": f"*{source_id}*"}},
-            {"wildcard": {"data.dstuser": f"*{source_id}*"}},
-            {"wildcard": {"data.win.eventdata.targetUserName": f"*{source_id}*"}},
-            {"wildcard": {"data.win.eventdata.subjectUserName": f"*{source_id}*"}}
-        ]}}
-        
-    elif source_type.lower() == "process":
-        return {"bool": {"should": [
-            {"wildcard": {"data.process": f"*{source_id}*"}},
-            {"wildcard": {"data.win.eventdata.image": f"*{source_id}*"}},
-            {"wildcard": {"data.win.eventdata.commandLine": f"*{source_id}*"}}
-        ]}}
-        
-    elif source_type.lower() == "ip":
-        return {"bool": {"should": [
-            {"term": {"data.srcip": source_id}},
-            {"term": {"agent.ip": source_id}}
-        ]}}
+    if entity_type.lower() == "host":
+        filters.append({
+            "bool": {
+                "should": [
+                    {"term": {"agent.name": entity_id}},
+                    {"term": {"agent.ip": entity_id}},
+                    {"wildcard": {"agent.name": f"*{entity_id}*"}}
+                ]
+            }
+        })
+    elif entity_type.lower() == "user":
+        filters.append({
+            "bool": {
+                "should": [
+                    {"wildcard": {"data.srcuser": f"*{entity_id}*"}},
+                    {"wildcard": {"data.dstuser": f"*{entity_id}*"}},
+                    {"wildcard": {"data.win.eventdata.targetUserName": f"*{entity_id}*"}},
+                    {"wildcard": {"data.win.eventdata.subjectUserName": f"*{entity_id}*"}}
+                ]
+            }
+        })
     
-    return None
+    return filters
 
 
-def _extract_activity_data(source: Dict[str, Any], source_type: str, source_id: str, target_type: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Extract activity correlation data from event source"""
+def _infer_entity_type(entity_name: str) -> str:
+    """Infer entity type from name patterns"""
+    if "." in entity_name and len(entity_name.split(".")) > 1:
+        return "user"
+    elif "-" in entity_name or "server" in entity_name.lower():
+        return "host"
+    else:
+        return "unknown"
+
+
+def _assess_correlation_risk(activity_count: int, activity_types: List[str], unusual_activities: List[Dict]) -> Dict[str, Any]:
+    """Assess risk level of correlated activities"""
+    risk_score = 0
+    risk_indicators = []
     
-    timestamp = source.get("@timestamp", "")
-    agent_name = source.get("agent", {}).get("name", "")
+    # High activity volume
+    if activity_count > 100:
+        risk_score += 30
+        risk_indicators.append("High activity volume")
+    elif activity_count > 50:
+        risk_score += 15
+        risk_indicators.append("Elevated activity volume")
     
-    # Extract relevant data fields
-    data = source.get("data", {})
-    win_eventdata = data.get("win", {}).get("eventdata", {})
-    rule_groups = source.get("rule", {}).get("groups", [])
+    # Unusual activity types
+    if unusual_activities:
+        risk_score += len(unusual_activities) * 10
+        risk_indicators.append(f"Unusual activities detected: {len(unusual_activities)}")
     
-    # Determine activity type and correlated entity
-    activity_type = "unknown"
-    correlated_entity = {"type": "unknown", "id": "unknown"}
-    activity_details = {}
+    # High-risk activity types
+    high_risk_activities = ["authentication_failed", "privilege_escalation", "malware", "attack", "exploit"]
+    if any(risk_activity in " ".join(activity_types).lower() for risk_activity in high_risk_activities):
+        risk_score += 40
+        risk_indicators.append("High-risk activity types detected")
     
-    # Process execution correlation
-    if any(group in rule_groups for group in ["process", "execution", "audit"]) or win_eventdata.get("commandLine"):
-        activity_type = "process_execution"
-        process_name = data.get("process") or win_eventdata.get("image", "")
-        if process_name:
-            correlated_entity = {"type": "process", "id": process_name}
-            activity_details = {
-                "command_line": win_eventdata.get("commandLine", ""),
-                "process_id": win_eventdata.get("processId", ""),
-                "parent_process": win_eventdata.get("parentImage", "")
-            }
-    
-    # Network activity correlation
-    elif data.get("srcip") or data.get("dstip"):
-        activity_type = "network_activity"
-        target_ip = data.get("dstip") or data.get("srcip", "")
-        if target_ip:
-            correlated_entity = {"type": "ip", "id": target_ip}
-            activity_details = {
-                "protocol": data.get("protocol", ""),
-                "source_ip": data.get("srcip", ""),
-                "destination_ip": data.get("dstip", ""),
-                "communication_type": "outbound" if data.get("dstip") else "inbound"
-            }
-    
-    # File system activity correlation
-    elif any(group in rule_groups for group in ["syscheck", "file_integrity", "fim"]):
-        activity_type = "file_activity"
-        file_path = data.get("path") or win_eventdata.get("targetFilename", "")
-        if file_path:
-            correlated_entity = {"type": "file", "id": file_path}
-            activity_details = {
-                "operation": "file_change",
-                "file_type": _get_file_type(file_path),
-                "user": data.get("srcuser") or win_eventdata.get("targetUserName", "")
-            }
-    
-    # Authentication activity correlation
-    elif any(group in rule_groups for group in ["authentication", "pam", "ssh", "login", "logon"]):
-        activity_type = "authentication_activity"
-        target_user = data.get("dstuser") or win_eventdata.get("targetUserName", "")
-        if target_user:
-            correlated_entity = {"type": "user", "id": target_user}
-            activity_details = {
-                "logon_type": win_eventdata.get("logonType", ""),
-                "source_ip": data.get("srcip", ""),
-                "authentication_result": "success" if source.get("rule", {}).get("level", 0) < 5 else "failure"
-            }
-    
-    # Skip if no meaningful correlation found
-    if correlated_entity["id"] in ["unknown", ""]:
-        return None
+    # Determine risk level
+    if risk_score > 70:
+        risk_level = "Critical"
+    elif risk_score > 40:
+        risk_level = "High"
+    elif risk_score > 20:
+        risk_level = "Medium"
+    else:
+        risk_level = "Low"
     
     return {
-        "timestamp": timestamp,
-        "formatted_time": _format_timestamp(timestamp),
-        "activity_type": activity_type,
-        "correlated_entity": correlated_entity,
-        "activity_details": activity_details,
-        "rule_info": {
-            "id": source.get("rule", {}).get("id", ""),
-            "description": source.get("rule", {}).get("description", ""),
-            "level": source.get("rule", {}).get("level", 0)
-        },
-        "agent": {"name": agent_name, "ip": source.get("agent", {}).get("ip", "")}
+        "risk_level": risk_level,
+        "risk_score": risk_score,
+        "risk_indicators": risk_indicators
     }
 
 
-async def _analyze_activity_correlations(correlation_events: List[Dict[str, Any]], source_type: str) -> Dict[str, Any]:
-    """Analyze activity correlations for patterns and insights"""
+def _determine_relationship_type(shared_activities: List[Dict]) -> str:
+    """Determine the type of relationship based on shared activities"""
+    if not shared_activities:
+        return "unknown"
+    
+    activity_names = [activity["activity_type"] for activity in shared_activities]
+    activity_text = " ".join(activity_names).lower()
+    
+    if any(term in activity_text for term in ["authentication", "login", "logon"]):
+        return "authentication_relationship"
+    elif any(term in activity_text for term in ["file", "syscheck", "integrity"]):
+        return "file_relationship"
+    elif any(term in activity_text for term in ["process", "execution", "command"]):
+        return "process_relationship"
+    elif any(term in activity_text for term in ["network", "connection", "communication"]):
+        return "network_relationship"
+    else:
+        return "general_activity_relationship"
+
+
+def _analyze_correlation_patterns(correlation_events: List[Dict], cross_correlations: List[Dict], aggregations: Dict) -> Dict[str, Any]:
+    """Analyze correlation patterns from aggregated data"""
+    analysis = {
+        "temporal_patterns": {},
+        "entity_correlation_strength": {},
+        "behavioral_anomalies": {},
+        "risk_assessment": {}
+    }
     
     if not correlation_events:
-        return {"message": "No correlated activities found for analysis"}
+        return {"message": "No correlation events found for analysis"}
     
-    analysis = {
-        "activity_patterns": {},
-        "temporal_analysis": {},
-        "entity_interactions": {},
-        "correlation_strength": {},
-        "risk_indicators": {}
-    }
-    
-    # Activity patterns analysis
-    activity_counts = Counter([event["activity_type"] for event in correlation_events])
-    entity_type_counts = Counter([event["correlated_entity"]["type"] for event in correlation_events])
-    
-    analysis["activity_patterns"] = {
-        "most_common_activity": activity_counts.most_common(1)[0] if activity_counts else ("none", 0),
-        "activity_distribution": dict(activity_counts),
-        "entity_type_distribution": dict(entity_type_counts),
-        "activity_diversity": len(activity_counts)
-    }
-    
-    # Temporal analysis
-    hourly_activity = defaultdict(int)
-    activity_sequences = []
-    
+    # Analyze temporal clustering
+    time_buckets = {}
     for event in correlation_events:
-        try:
-            dt = datetime.fromisoformat(event["timestamp"].replace('Z', '+00:00'))
-            hourly_activity[dt.hour] += 1
-            activity_sequences.append((dt, event["activity_type"]))
-        except (ValueError, AttributeError):
-            continue
+        timestamp = event["timestamp"]
+        time_buckets[timestamp] = time_buckets.get(timestamp, 0) + event["activity_count"]
     
-    # Sort sequences by time
-    activity_sequences.sort(key=lambda x: x[0])
-    
-    analysis["temporal_analysis"] = {
-        "hourly_distribution": dict(hourly_activity),
-        "peak_activity_hour": max(hourly_activity.items(), key=lambda x: x[1]) if hourly_activity else (0, 0),
-        "activity_sequence": [seq[1] for seq in activity_sequences[:20]],  # First 20 activities
-        "temporal_clustering": _detect_temporal_clusters(activity_sequences)
+    analysis["temporal_patterns"] = {
+        "peak_activity_time": max(time_buckets.items(), key=lambda x: x[1]) if time_buckets else ("N/A", 0),
+        "total_time_windows": len(time_buckets),
+        "avg_activity_per_window": sum(time_buckets.values()) / len(time_buckets) if time_buckets else 0
     }
     
-    # Entity interactions analysis
-    entity_interactions = defaultdict(list)
-    for event in correlation_events:
-        entity_key = f"{event['correlated_entity']['type']}:{event['correlated_entity']['id']}"
-        entity_interactions[entity_key].append(event["activity_type"])
+    # Analyze correlation strength distribution
+    if cross_correlations:
+        strength_values = [c["correlation_strength"] for c in cross_correlations]
+        analysis["entity_correlation_strength"] = {
+            "max_correlation": max(strength_values),
+            "avg_correlation": sum(strength_values) / len(strength_values),
+            "strong_correlations": len([s for s in strength_values if s > 50])
+        }
     
-    analysis["entity_interactions"] = {
-        "total_unique_entities": len(entity_interactions),
-        "most_active_entity": max(entity_interactions.items(), key=lambda x: len(x[1])) if entity_interactions else ("none", []),
-        "entity_activity_counts": {k: len(v) for k, v in entity_interactions.items()},
-        "cross_entity_patterns": _analyze_cross_entity_patterns(entity_interactions)
-    }
+    # Risk assessment
+    risk_levels = [event["risk_indicators"]["risk_level"] for event in correlation_events if "risk_indicators" in event]
+    risk_counts = {level: risk_levels.count(level) for level in set(risk_levels)}
     
-    # Correlation strength analysis
-    total_events = len(correlation_events)
-    unique_entities = len(entity_interactions)
-    
-    analysis["correlation_strength"] = {
-        "correlation_density": unique_entities / total_events if total_events else 0,
-        "activity_concentration": max(activity_counts.values()) / total_events if total_events else 0,
-        "temporal_spread": len(hourly_activity),
-        "strength_score": _calculate_correlation_strength(correlation_events, entity_interactions)
-    }
-    
-    # Risk indicators
-    high_risk_activities = [e for e in correlation_events if e["rule_info"]["level"] >= 7]
-    suspicious_patterns = []
-    
-    # Check for rapid activity bursts
-    if len(activity_sequences) > 10:
-        time_diffs = [(activity_sequences[i+1][0] - activity_sequences[i][0]).total_seconds() 
-                     for i in range(len(activity_sequences)-1)]
-        avg_time_diff = sum(time_diffs) / len(time_diffs)
-        if avg_time_diff < 60:  # Less than 1 minute between activities
-            suspicious_patterns.append("Rapid activity burst detected - possible automated behavior")
-    
-    # Check for unusual entity diversity
-    if unique_entities > 20:
-        suspicious_patterns.append("High entity interaction diversity - possible lateral movement or reconnaissance")
-    
-    analysis["risk_indicators"] = {
-        "high_risk_activities": len(high_risk_activities),
-        "risk_percentage": (len(high_risk_activities) / total_events * 100) if total_events else 0,
-        "suspicious_patterns": suspicious_patterns,
-        "overall_risk_score": _calculate_correlation_risk_score(correlation_events, suspicious_patterns)
+    analysis["risk_assessment"] = {
+        "risk_distribution": risk_counts,
+        "high_risk_correlations": len([r for r in risk_levels if r in ["Critical", "High"]]),
+        "total_correlations_analyzed": len(correlation_events)
     }
     
     return analysis
 
 
-def _detect_temporal_clusters(activity_sequences: List[tuple]) -> Dict[str, Any]:
-    """Detect temporal clusters of activity"""
-    if len(activity_sequences) < 2:
-        return {"clusters_found": 0, "cluster_info": []}
-    
-    clusters = []
-    current_cluster = [activity_sequences[0]]
-    
-    for i in range(1, len(activity_sequences)):
-        time_diff = (activity_sequences[i][0] - activity_sequences[i-1][0]).total_seconds()
-        
-        if time_diff <= 300:  # 5 minutes threshold
-            current_cluster.append(activity_sequences[i])
-        else:
-            if len(current_cluster) > 3:  # Cluster must have at least 4 activities
-                clusters.append({
-                    "start_time": current_cluster[0][0].isoformat(),
-                    "end_time": current_cluster[-1][0].isoformat(),
-                    "activity_count": len(current_cluster),
-                    "activity_types": list(set([act[1] for act in current_cluster]))
-                })
-            current_cluster = [activity_sequences[i]]
-    
-    # Check final cluster
-    if len(current_cluster) > 3:
-        clusters.append({
-            "start_time": current_cluster[0][0].isoformat(),
-            "end_time": current_cluster[-1][0].isoformat(),
-            "activity_count": len(current_cluster),
-            "activity_types": list(set([act[1] for act in current_cluster]))
-        })
-    
-    return {
-        "clusters_found": len(clusters),
-        "cluster_info": clusters[:5]  # Return top 5 clusters
-    }
-
-
-def _analyze_cross_entity_patterns(entity_interactions: Dict[str, List[str]]) -> Dict[str, Any]:
-    """Analyze patterns across different entities"""
-    patterns = {
-        "common_activity_sequences": {},
-        "entity_type_correlations": defaultdict(list),
-        "activity_sharing": {}
-    }
-    
-    # Group entities by type
-    for entity_key, activities in entity_interactions.items():
-        entity_type = entity_key.split(":")[0]
-        patterns["entity_type_correlations"][entity_type].extend(activities)
-    
-    # Find common activity patterns
-    all_activity_sets = [set(activities) for activities in entity_interactions.values()]
-    if len(all_activity_sets) > 1:
-        common_activities = set.intersection(*all_activity_sets)
-        patterns["activity_sharing"] = {
-            "shared_activities": list(common_activities),
-            "sharing_percentage": len(common_activities) / len(set().union(*all_activity_sets)) * 100 if all_activity_sets else 0
-        }
-    
-    return dict(patterns)
-
-
-def _calculate_correlation_strength(correlation_events: List[Dict[str, Any]], entity_interactions: Dict[str, List[str]]) -> float:
-    """Calculate overall correlation strength score"""
-    if not correlation_events:
-        return 0.0
-    
-    score = 0.0
-    
-    # Diversity bonus
-    unique_activities = len(set([e["activity_type"] for e in correlation_events]))
-    unique_entities = len(entity_interactions)
-    
-    score += min(30, unique_activities * 3)  # Up to 30 points for activity diversity
-    score += min(25, unique_entities * 2)    # Up to 25 points for entity diversity
-    
-    # Temporal correlation bonus
-    time_spans = []
-    for activities in entity_interactions.values():
-        if len(activities) > 1:
-            score += 5  # Bonus for multi-activity entities
-    
-    # Event density bonus
-    total_events = len(correlation_events)
-    if total_events > 50:
-        score += 20
-    elif total_events > 20:
-        score += 10
-    
-    return min(100.0, score)
-
-
-def _calculate_correlation_risk_score(correlation_events: List[Dict[str, Any]], suspicious_patterns: List[str]) -> float:
-    """Calculate risk score for correlated activities"""
-    if not correlation_events:
-        return 0.0
-    
-    risk_score = 0.0
-    
-    # Base risk from suspicious patterns
-    risk_score += len(suspicious_patterns) * 20
-    
-    # Risk from high-severity events
-    high_severity_count = len([e for e in correlation_events if e["rule_info"]["level"] >= 8])
-    risk_score += (high_severity_count / len(correlation_events)) * 35
-    
-    # Risk from activity diversity (potential reconnaissance)
-    unique_entities = len(set([f"{e['correlated_entity']['type']}:{e['correlated_entity']['id']}" for e in correlation_events]))
-    if unique_entities > 30:
-        risk_score += 25
-    elif unique_entities > 15:
-        risk_score += 15
-    
-    return min(100.0, risk_score)
-
-
-def _get_file_type(file_path: str) -> str:
-    """Determine file type from path"""
-    if not file_path:
-        return "unknown"
-    
-    file_path_lower = file_path.lower()
-    if file_path_lower.endswith(('.exe', '.dll', '.sys')):
-        return "executable"
-    elif file_path_lower.endswith(('.txt', '.log', '.conf', '.cfg', '.ini')):
-        return "configuration"
-    elif file_path_lower.endswith(('.jpg', '.png', '.gif', '.bmp')):
-        return "image"
-    elif file_path_lower.endswith(('.doc', '.pdf', '.xls', '.ppt')):
-        return "document"
-    else:
-        return "other"
-
-
-def _generate_correlation_insights(correlation_events: List[Dict[str, Any]], analysis: Dict[str, Any]) -> List[str]:
-    """Generate behavioral insights from activity correlation"""
+def _generate_correlation_insights(correlation_events: List[Dict], analysis: Dict) -> List[str]:
+    """Generate behavioral insights from correlation analysis"""
     insights = []
     
     if not correlation_events:
-        return ["No correlated activities available for analysis"]
-    
-    # Activity pattern insights
-    patterns = analysis.get("activity_patterns", {})
-    common_activity = patterns.get("most_common_activity", ("", 0))
-    if common_activity[1] > 0:
-        insights.append(f"Primary correlated activity: {common_activity[0]} ({common_activity[1]} occurrences)")
+        return ["No correlation events available for behavioral analysis"]
     
     # Temporal insights
-    temporal = analysis.get("temporal_analysis", {})
-    peak_hour = temporal.get("peak_activity_hour", (0, 0))
-    if peak_hour[1] > 0:
-        insights.append(f"Peak correlation activity at {peak_hour[0]:02d}:00 with {peak_hour[1]} events")
+    peak_time, peak_count = analysis.get("temporal_patterns", {}).get("peak_activity_time", ("N/A", 0))
+    if peak_count > 0:
+        insights.append(f"Peak correlated activity occurred at {peak_time} with {peak_count} events")
     
-    clusters = temporal.get("temporal_clustering", {}).get("clusters_found", 0)
-    if clusters > 0:
-        insights.append(f"Detected {clusters} temporal activity clusters - possible coordinated behavior")
-    
-    # Entity interaction insights
-    interactions = analysis.get("entity_interactions", {})
-    unique_entities = interactions.get("total_unique_entities", 0)
-    if unique_entities > 20:
-        insights.append("High entity interaction diversity - investigate for potential lateral movement")
-    elif unique_entities > 10:
-        insights.append("Moderate entity interaction diversity - monitor for expansion patterns")
+    # Correlation strength insights
+    strong_correlations = analysis.get("entity_correlation_strength", {}).get("strong_correlations", 0)
+    if strong_correlations > 5:
+        insights.append(f"Detected {strong_correlations} strong entity correlations - potential coordinated activity")
     
     # Risk insights
-    risk = analysis.get("risk_indicators", {})
-    risk_score = risk.get("overall_risk_score", 0)
-    if risk_score > 70:
-        insights.append("High-risk correlation patterns detected - immediate investigation recommended")
-    elif risk_score > 40:
-        insights.append("Moderate-risk correlation patterns - enhanced monitoring advised")
-    else:
-        insights.append("Correlation patterns appear within normal parameters")
+    high_risk_count = analysis.get("risk_assessment", {}).get("high_risk_correlations", 0)
+    if high_risk_count > 0:
+        insights.append(f"Identified {high_risk_count} high-risk correlation patterns requiring investigation")
     
     return insights
 
 
-def _generate_correlation_recommendations(analysis: Dict[str, Any]) -> List[str]:
-    """Generate recommendations based on activity correlation analysis"""
+def _generate_correlation_recommendations(analysis: Dict) -> List[str]:
+    """Generate recommendations based on correlation analysis"""
     recommendations = []
     
     # Risk-based recommendations
-    risk = analysis.get("risk_indicators", {})
-    suspicious_patterns = risk.get("suspicious_patterns", [])
-    
-    if suspicious_patterns:
-        recommendations.extend([f"Investigate: {pattern}" for pattern in suspicious_patterns])
-    
-    risk_score = risk.get("overall_risk_score", 0)
-    if risk_score > 70:
-        recommendations.append("Critical: High-risk activity correlations - conduct immediate threat hunt")
-    elif risk_score > 40:
-        recommendations.append("Warning: Moderate-risk correlations - consider deeper analysis")
-    
-    # Entity interaction recommendations
-    interactions = analysis.get("entity_interactions", {})
-    unique_entities = interactions.get("total_unique_entities", 0)
-    
-    if unique_entities > 25:
-        recommendations.append("Review access controls - entity may have excessive interaction scope")
-    
-    # Temporal recommendations
-    temporal = analysis.get("temporal_analysis", {})
-    clusters = temporal.get("temporal_clustering", {}).get("clusters_found", 0)
-    
-    if clusters > 3:
-        recommendations.append("Analyze temporal clusters for automation or coordinated attack patterns")
+    high_risk_count = analysis.get("risk_assessment", {}).get("high_risk_correlations", 0)
+    if high_risk_count > 10:
+        recommendations.append("Critical: High number of risky correlations detected - immediate security review required")
+    elif high_risk_count > 0:
+        recommendations.append(f"Warning: {high_risk_count} high-risk correlations found - investigate coordination patterns")
     
     # Correlation strength recommendations
-    correlation = analysis.get("correlation_strength", {})
-    strength_score = correlation.get("strength_score", 0)
-    
-    if strength_score > 80:
-        recommendations.append("Strong correlations detected - validate for legitimate business processes")
+    strong_correlations = analysis.get("entity_correlation_strength", {}).get("strong_correlations", 0)
+    if strong_correlations > 10:
+        recommendations.append("Strong entity correlations detected - analyze for potential coordinated attacks or automation")
     
     if not recommendations:
-        recommendations.append("Activity correlations appear normal - continue standard monitoring")
+        recommendations.append("Activity correlations appear normal based on aggregated analysis")
     
     return recommendations
-
-
-def _format_timestamp(timestamp: str) -> str:
-    """Format timestamp for display"""
-    try:
-        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-    except (ValueError, AttributeError):
-        return timestamp

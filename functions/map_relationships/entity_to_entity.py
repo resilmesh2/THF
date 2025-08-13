@@ -1,5 +1,5 @@
 """
-Map direct relationships between two specific entities
+Map direct relationships between entities using OpenSearch aggregations
 """
 from typing import Dict, Any, List, Optional
 import structlog
@@ -10,14 +10,14 @@ logger = structlog.get_logger()
 
 async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Map direct relationships between two specific entities
+    Map direct relationships between entities using aggregation-based approach
     
     Args:
         opensearch_client: OpenSearch client instance
         params: Parameters including source_type, source_id, target_type, timeframe
         
     Returns:
-        Direct entity relationships with connection details
+        Direct entity relationships with connection strength and analysis
     """
     try:
         # Extract parameters
@@ -26,7 +26,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         target_type = params.get("target_type")
         timeframe = params.get("timeframe", "24h")
         
-        logger.info("Executing entity-to-entity relationship mapping", 
+        logger.info("Executing aggregated entity-to-entity relationship mapping", 
                    source_type=source_type,
                    source_id=source_id,
                    target_type=target_type,
@@ -35,48 +35,107 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         # Build time range filter
         time_filter = opensearch_client.build_time_range_filter(timeframe)
         
-        # Build the search query based on entity types
-        query = _build_entity_relationship_query(source_type, source_id, target_type, time_filter)
+        # Build aggregation-based query
+        query = _build_relationship_aggregation_query(source_type, source_id, target_type, time_filter)
         
-        # Execute search
+        # Execute search with aggregations
         response = await opensearch_client.search(
             index=opensearch_client.alerts_index,
-            query=query
+            query=query,
+            size=0  # Only aggregations needed
         )
         
-        # Process results
-        hits = response.get("hits", {})
-        total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
-        events = hits.get("hits", [])
+        # Process aggregation results
+        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        aggregations = response.get("aggregations", {})
         
-        logger.info("Retrieved events for entity relationship mapping", count=len(events), total=total_alerts)
+        logger.info("Retrieved aggregated relationship data", total_alerts=total_alerts)
         
-        # Process relationships
+        # Process relationship network from aggregations
         relationships = []
         relationship_summary = {
             "source_entity": {"type": source_type, "id": source_id},
             "target_entity": {"type": target_type, "id": "multiple" if not target_type else "specified"},
-            "total_connections": len(events),
+            "total_connections": 0,
             "timeframe": timeframe,
             "connection_types": set(),
-            "unique_targets": set()
+            "unique_targets": set(),
+            "relationship_strength_distribution": {},
+            "temporal_patterns": {}
         }
         
-        for hit in events:
-            source = hit.get("_source", {})
-            relationship_data = _extract_relationship_data(source, source_type, source_id, target_type)
-            if relationship_data:
-                relationships.append(relationship_data)
-                relationship_summary["connection_types"].add(relationship_data["connection_type"])
-                relationship_summary["unique_targets"].add(relationship_data["target_entity"]["id"])
+        # Process source entity aggregations
+        if "source_entities" in aggregations:
+            for source_bucket in aggregations["source_entities"]["buckets"]:
+                source_entity_name = source_bucket["key"]
+                
+                # Process each target type
+                target_mappings = {
+                    "connected_users": "user",
+                    "connected_hosts": "host", 
+                    "connected_processes": "process",
+                    "connected_files": "file"
+                }
+                
+                for agg_name, target_entity_type in target_mappings.items():
+                    if agg_name in source_bucket:
+                        for target_bucket in source_bucket[agg_name]["buckets"]:
+                            target_entity_name = target_bucket["key"]
+                            connection_strength = target_bucket["doc_count"]
+                            
+                            # Extract connection types from rule groups
+                            connection_types = [b["key"] for b in target_bucket.get("connection_types", {}).get("buckets", [])]
+                            
+                            # Get temporal pattern
+                            temporal_pattern = []
+                            if "temporal_distribution" in target_bucket:
+                                temporal_pattern = [
+                                    {"timestamp": b["key_as_string"], "count": b["doc_count"]} 
+                                    for b in target_bucket["temporal_distribution"]["buckets"]
+                                ]
+                            
+                            # Get latest connection example
+                            latest_connection = None
+                            if target_bucket.get("latest_connection", {}).get("hits", {}).get("hits"):
+                                latest_hit = target_bucket["latest_connection"]["hits"]["hits"][0]["_source"]
+                                latest_connection = {
+                                    "timestamp": latest_hit.get("@timestamp", ""),
+                                    "rule_description": latest_hit.get("rule", {}).get("description", ""),
+                                    "rule_level": latest_hit.get("rule", {}).get("level", 0),
+                                    "rule_id": latest_hit.get("rule", {}).get("id", "")
+                                }
+                            
+                            # Calculate relationship metrics
+                            avg_severity = target_bucket.get("avg_severity", {}).get("value", 0)
+                            relationship_score = min(100, (connection_strength * avg_severity) / 10)
+                            
+                            relationship_data = {
+                                "source_entity": {"type": source_type, "id": source_entity_name},
+                                "target_entity": {"type": target_entity_type, "id": target_entity_name},
+                                "connection_strength": connection_strength,
+                                "connection_types": connection_types,
+                                "temporal_pattern": temporal_pattern,
+                                "latest_connection": latest_connection,
+                                "avg_severity": round(avg_severity, 2),
+                                "relationship_score": round(relationship_score, 2),
+                                "risk_assessment": _assess_relationship_risk(connection_strength, avg_severity, connection_types)
+                            }
+                            
+                            relationships.append(relationship_data)
+                            relationship_summary["connection_types"].update(connection_types)
+                            relationship_summary["unique_targets"].add(target_entity_name)
+                            relationship_summary["total_connections"] += connection_strength
         
-        # Convert sets to lists for JSON serialization
+        # Convert sets to lists and add summary statistics
         relationship_summary["connection_types"] = list(relationship_summary["connection_types"])
         relationship_summary["unique_targets"] = list(relationship_summary["unique_targets"])
         relationship_summary["unique_target_count"] = len(relationship_summary["unique_targets"])
+        relationship_summary["avg_connection_strength"] = (
+            relationship_summary["total_connections"] / len(relationships) if relationships else 0
+        )
         
-        # Generate relationship analysis
-        analysis = _analyze_relationships(relationships, source_type, target_type)
+        # Generate enhanced analysis
+        analysis = _analyze_aggregated_relationships(relationships, aggregations)
         
         # Build result
         result = {
@@ -91,318 +150,289 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             "relationship_summary": relationship_summary,
             "relationships": relationships,
             "analysis": analysis,
-            "recommendations": _generate_entity_recommendations(relationships, analysis)
+            "recommendations": _generate_aggregated_recommendations(relationships, analysis)
         }
         
-        logger.info("Entity-to-entity relationship mapping completed", 
+        logger.info("Aggregated entity-to-entity relationship mapping completed", 
                    total_relationships=len(relationships),
-                   unique_targets=len(relationship_summary["unique_targets"]))
+                   unique_targets=len(relationship_summary["unique_targets"]),
+                   total_connections=relationship_summary["total_connections"])
         
         return result
         
     except Exception as e:
-        logger.error("Entity-to-entity relationship mapping failed", error=str(e))
+        logger.error("Aggregated entity-to-entity relationship mapping failed", error=str(e))
         raise Exception(f"Failed to map entity relationships: {str(e)}")
 
 
-def _build_entity_relationship_query(source_type: str, source_id: str, target_type: Optional[str], time_filter: Dict[str, Any]) -> Dict[str, Any]:
-    """Build search query for entity relationships"""
+def _build_relationship_aggregation_query(source_type: str, source_id: str, target_type: Optional[str], time_filter: Dict[str, Any]) -> Dict[str, Any]:
+    """Build aggregation query for relationship mapping"""
     
-    # Base query structure
+    # Build source entity filter
+    source_filters = _get_entity_filters(source_type, source_id)
+    
     query = {
         "query": {
             "bool": {
-                "must": [time_filter],
-                "should": []
+                "must": [time_filter] + source_filters
             }
         },
-        "sort": [{"@timestamp": {"order": "desc"}}],
-        "size": 500,
-        "_source": [
-            "@timestamp", "rule.description", "rule.level", "rule.id",
-            "agent.name", "agent.id", "agent.ip", "manager.name",
-            "data.srcip", "data.dstip", "data.srcuser", "data.dstuser",
-            "data.command", "data.process", "data.protocol",
-            "data.win.eventdata.commandLine", "data.win.eventdata.image",
-            "data.win.eventdata.targetUserName", "data.win.eventdata.subjectUserName",
-            "data.win.eventdata.targetFilename", "rule.groups", "location"
-        ]
+        "aggs": {
+            "source_entities": {
+                "terms": {
+                    "field": _get_entity_field(source_type),
+                    "size": 100
+                },
+                "aggs": {
+                    "connected_users": {
+                        "terms": {
+                            "field": "data.win.eventdata.targetUserName",
+                            "size": 50
+                        },
+                        "aggs": {
+                            "connection_types": {
+                                "terms": {"field": "rule.groups", "size": 10}
+                            },
+                            "avg_severity": {
+                                "avg": {"field": "rule.level"}
+                            },
+                            "temporal_distribution": {
+                                "date_histogram": {
+                                    "field": "@timestamp",
+                                    "interval": "1h"
+                                }
+                            },
+                            "latest_connection": {
+                                "top_hits": {
+                                    "size": 1,
+                                    "sort": [{"@timestamp": {"order": "desc"}}],
+                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                }
+                            }
+                        }
+                    },
+                    "connected_hosts": {
+                        "terms": {
+                            "field": "agent.name", 
+                            "size": 50
+                        },
+                        "aggs": {
+                            "connection_types": {
+                                "terms": {"field": "rule.groups", "size": 10}
+                            },
+                            "avg_severity": {
+                                "avg": {"field": "rule.level"}
+                            },
+                            "temporal_distribution": {
+                                "date_histogram": {
+                                    "field": "@timestamp",
+                                    "interval": "1h"  
+                                }
+                            },
+                            "latest_connection": {
+                                "top_hits": {
+                                    "size": 1,
+                                    "sort": [{"@timestamp": {"order": "desc"}}],
+                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                }
+                            }
+                        }
+                    },
+                    "connected_processes": {
+                        "terms": {
+                            "field": "data.win.eventdata.image",
+                            "size": 30
+                        },
+                        "aggs": {
+                            "connection_types": {
+                                "terms": {"field": "rule.groups", "size": 10}
+                            },
+                            "avg_severity": {
+                                "avg": {"field": "rule.level"}
+                            },
+                            "latest_connection": {
+                                "top_hits": {
+                                    "size": 1,
+                                    "sort": [{"@timestamp": {"order": "desc"}}],
+                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                }
+                            }
+                        }
+                    },
+                    "connected_files": {
+                        "terms": {
+                            "field": "data.win.eventdata.targetFilename",
+                            "size": 30
+                        },
+                        "aggs": {
+                            "connection_types": {
+                                "terms": {"field": "rule.groups", "size": 10}
+                            },
+                            "avg_severity": {
+                                "avg": {"field": "rule.level"}
+                            },
+                            "latest_connection": {
+                                "top_hits": {
+                                    "size": 1,
+                                    "sort": [{"@timestamp": {"order": "desc"}}],
+                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-    
-    # Build source entity filters
-    source_filters = _get_entity_filters(source_type, source_id)
-    
-    # Add target entity filters if specified
-    if target_type:
-        target_filters = _get_entity_filters(target_type, None)  # Will be filtered in post-processing
-        # Combine source and target filters
-        query["query"]["bool"]["should"] = [
-            {"bool": {"must": source_filters}},
-            {"bool": {"must": target_filters}}
-        ]
-        query["query"]["bool"]["minimum_should_match"] = 1
-    else:
-        # Only source entity filters
-        query["query"]["bool"]["must"].extend(source_filters)
     
     return query
 
 
-def _get_entity_filters(entity_type: str, entity_id: Optional[str]) -> List[Dict[str, Any]]:
+def _get_entity_filters(entity_type: str, entity_id: str) -> List[Dict[str, Any]]:
     """Get filters for specific entity type"""
     filters = []
     
     if entity_type.lower() == "host":
-        if entity_id:
-            filters.extend([
-                {"bool": {"should": [
+        filters.append({
+            "bool": {
+                "should": [
                     {"term": {"agent.name": entity_id}},
                     {"term": {"agent.ip": entity_id}},
                     {"wildcard": {"agent.name": f"*{entity_id}*"}}
-                ]}}
-            ])
-        else:
-            filters.append({"exists": {"field": "agent.name"}})
-            
+                ]
+            }
+        })
     elif entity_type.lower() == "user":
-        if entity_id:
-            filters.extend([
-                {"bool": {"should": [
+        filters.append({
+            "bool": {
+                "should": [
                     {"wildcard": {"data.srcuser": f"*{entity_id}*"}},
                     {"wildcard": {"data.dstuser": f"*{entity_id}*"}},
                     {"wildcard": {"data.win.eventdata.targetUserName": f"*{entity_id}*"}},
                     {"wildcard": {"data.win.eventdata.subjectUserName": f"*{entity_id}*"}}
-                ]}}
-            ])
-        else:
-            filters.append({"bool": {"should": [
-                {"exists": {"field": "data.srcuser"}},
-                {"exists": {"field": "data.dstuser"}},
-                {"exists": {"field": "data.win.eventdata.targetUserName"}}
-            ]}})
-            
+                ]
+            }
+        })
     elif entity_type.lower() == "process":
-        if entity_id:
-            filters.extend([
-                {"bool": {"should": [
+        filters.append({
+            "bool": {
+                "should": [
                     {"wildcard": {"data.process": f"*{entity_id}*"}},
                     {"wildcard": {"data.win.eventdata.image": f"*{entity_id}*"}},
                     {"wildcard": {"data.win.eventdata.commandLine": f"*{entity_id}*"}}
-                ]}}
-            ])
-        else:
-            filters.append({"bool": {"should": [
-                {"exists": {"field": "data.process"}},
-                {"exists": {"field": "data.win.eventdata.image"}}
-            ]}})
-            
-    elif entity_type.lower() == "file":
-        if entity_id:
-            filters.extend([
-                {"bool": {"should": [
-                    {"wildcard": {"data.path": f"*{entity_id}*"}},
-                    {"wildcard": {"data.win.eventdata.targetFilename": f"*{entity_id}*"}}
-                ]}}
-            ])
-        else:
-            filters.append({"bool": {"should": [
-                {"exists": {"field": "data.path"}},
-                {"exists": {"field": "data.win.eventdata.targetFilename"}}
-            ]}})
-            
-    elif entity_type.lower() == "ip":
-        if entity_id:
-            filters.extend([
-                {"bool": {"should": [
-                    {"term": {"data.srcip": entity_id}},
-                    {"term": {"data.dstip": entity_id}},
-                    {"term": {"agent.ip": entity_id}}
-                ]}}
-            ])
-        else:
-            filters.append({"bool": {"should": [
-                {"exists": {"field": "data.srcip"}},
-                {"exists": {"field": "data.dstip"}}
-            ]}})
+                ]
+            }
+        })
     
     return filters
 
 
-def _extract_relationship_data(source: Dict[str, Any], source_type: str, source_id: str, target_type: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Extract relationship data from event source"""
-    
-    timestamp = source.get("@timestamp", "")
-    agent_name = source.get("agent", {}).get("name", "")
-    agent_ip = source.get("agent", {}).get("ip", "")
-    
-    # Extract relevant data fields
-    data = source.get("data", {})
-    win_eventdata = data.get("win", {}).get("eventdata", {})
-    
-    # Determine connection type based on available data
-    connection_type = "unknown"
-    target_entity = {"type": "unknown", "id": "unknown"}
-    connection_details = {}
-    
-    # Host relationships
-    if source_type.lower() == "host":
-        if data.get("srcuser") or data.get("dstuser") or win_eventdata.get("targetUserName"):
-            connection_type = "user_activity"
-            target_entity = {
-                "type": "user",
-                "id": data.get("srcuser") or data.get("dstuser") or win_eventdata.get("targetUserName", "")
-            }
-        elif data.get("process") or win_eventdata.get("image"):
-            connection_type = "process_execution"
-            target_entity = {
-                "type": "process", 
-                "id": data.get("process") or win_eventdata.get("image", "")
-            }
-        elif data.get("srcip") or data.get("dstip"):
-            connection_type = "network_connection"
-            target_entity = {
-                "type": "ip",
-                "id": data.get("dstip") or data.get("srcip", "")
-            }
-    
-    # User relationships
-    elif source_type.lower() == "user":
-        if agent_name and source_id.lower() in (data.get("srcuser", "").lower() or data.get("dstuser", "").lower() or win_eventdata.get("targetUserName", "").lower()):
-            connection_type = "host_access"
-            target_entity = {"type": "host", "id": agent_name}
-        elif data.get("path") or win_eventdata.get("targetFilename"):
-            connection_type = "file_access"
-            target_entity = {
-                "type": "file",
-                "id": data.get("path") or win_eventdata.get("targetFilename", "")
-            }
-    
-    # Process relationships
-    elif source_type.lower() == "process":
-        if data.get("srcip") or data.get("dstip"):
-            connection_type = "network_activity"
-            target_entity = {
-                "type": "ip",
-                "id": data.get("dstip") or data.get("srcip", "")
-            }
-        elif data.get("path") or win_eventdata.get("targetFilename"):
-            connection_type = "file_interaction"
-            target_entity = {
-                "type": "file", 
-                "id": data.get("path") or win_eventdata.get("targetFilename", "")
-            }
-    
-    # Skip if no meaningful relationship found
-    if target_entity["id"] in ["unknown", ""]:
-        return None
-    
-    # Build connection details
-    connection_details = {
-        "rule_id": source.get("rule", {}).get("id", ""),
-        "rule_description": source.get("rule", {}).get("description", ""),
-        "rule_level": source.get("rule", {}).get("level", 0),
-        "protocol": data.get("protocol", ""),
-        "command": data.get("command") or win_eventdata.get("commandLine", ""),
-        "location": source.get("location", "")
+def _get_entity_field(entity_type: str) -> str:
+    """Get the primary field for entity type"""
+    field_mapping = {
+        "host": "agent.name",
+        "user": "data.win.eventdata.targetUserName", 
+        "process": "data.win.eventdata.image",
+        "file": "data.win.eventdata.targetFilename"
     }
-    
-    return {
-        "timestamp": timestamp,
-        "formatted_time": _format_timestamp(timestamp),
-        "source_entity": {"type": source_type, "id": source_id},
-        "target_entity": target_entity,
-        "connection_type": connection_type,
-        "connection_details": connection_details,
-        "agent": {"name": agent_name, "ip": agent_ip}
-    }
+    return field_mapping.get(entity_type.lower(), "agent.name")
 
 
-def _analyze_relationships(relationships: List[Dict[str, Any]], source_type: str, target_type: Optional[str]) -> Dict[str, Any]:
-    """Analyze relationship patterns"""
+def _assess_relationship_risk(connection_strength: int, avg_severity: float, connection_types: List[str]) -> str:
+    """Assess risk level of relationship"""
+    risk_score = 0
     
+    # Factor in connection strength
+    if connection_strength > 100:
+        risk_score += 30
+    elif connection_strength > 50:
+        risk_score += 20
+    elif connection_strength > 10:
+        risk_score += 10
+    
+    # Factor in average severity
+    if avg_severity > 8:
+        risk_score += 40
+    elif avg_severity > 5:
+        risk_score += 25
+    elif avg_severity > 3:
+        risk_score += 10
+    
+    # Factor in connection types
+    high_risk_types = ["authentication_failed", "privilege_escalation", "malware", "attack"]
+    if any(risk_type in " ".join(connection_types).lower() for risk_type in high_risk_types):
+        risk_score += 30
+    
+    if risk_score > 70:
+        return "Critical"
+    elif risk_score > 40:
+        return "High"
+    elif risk_score > 20:
+        return "Medium"
+    else:
+        return "Low"
+
+
+def _analyze_aggregated_relationships(relationships: List[Dict[str, Any]], aggregations: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze relationships using aggregation data"""
     if not relationships:
         return {"message": "No relationships found"}
     
     analysis = {
-        "connection_patterns": {},
-        "temporal_distribution": {},
+        "relationship_patterns": {},
+        "strength_distribution": {},
         "risk_assessment": {},
-        "anomalies": []
+        "temporal_analysis": {}
     }
     
-    # Analyze connection patterns
-    connection_counts = {}
-    target_counts = {}
-    
-    for rel in relationships:
-        conn_type = rel["connection_type"]
-        target_id = rel["target_entity"]["id"]
-        
-        connection_counts[conn_type] = connection_counts.get(conn_type, 0) + 1
-        target_counts[target_id] = target_counts.get(target_id, 0) + 1
-    
-    analysis["connection_patterns"] = {
-        "most_common_connection": max(connection_counts.items(), key=lambda x: x[1]) if connection_counts else ("none", 0),
-        "connection_diversity": len(connection_counts),
-        "target_diversity": len(target_counts),
-        "most_active_target": max(target_counts.items(), key=lambda x: x[1]) if target_counts else ("none", 0)
+    # Analyze relationship strength distribution
+    strength_values = [r["connection_strength"] for r in relationships]
+    analysis["strength_distribution"] = {
+        "min_strength": min(strength_values),
+        "max_strength": max(strength_values),
+        "avg_strength": sum(strength_values) / len(strength_values),
+        "total_connections": sum(strength_values)
     }
     
     # Risk assessment
-    high_risk_connections = [r for r in relationships if r["connection_details"]["rule_level"] >= 7]
+    risk_counts = {}
+    for r in relationships:
+        risk_level = r["risk_assessment"]
+        risk_counts[risk_level] = risk_counts.get(risk_level, 0) + 1
+    
     analysis["risk_assessment"] = {
-        "high_risk_connections": len(high_risk_connections),
-        "risk_percentage": (len(high_risk_connections) / len(relationships)) * 100 if relationships else 0,
-        "average_severity": sum([r["connection_details"]["rule_level"] for r in relationships]) / len(relationships)
+        "risk_distribution": risk_counts,
+        "high_risk_relationships": len([r for r in relationships if r["risk_assessment"] in ["Critical", "High"]]),
+        "risk_percentage": (len([r for r in relationships if r["risk_assessment"] in ["Critical", "High"]]) / len(relationships)) * 100
     }
-    
-    # Identify anomalies
-    if len(target_counts) > 10:
-        analysis["anomalies"].append("High number of unique targets - possible lateral movement")
-    
-    if analysis["risk_assessment"]["risk_percentage"] > 30:
-        analysis["anomalies"].append("High percentage of risky connections detected")
     
     return analysis
 
 
-def _generate_entity_recommendations(relationships: List[Dict[str, Any]], analysis: Dict[str, Any]) -> List[str]:
-    """Generate recommendations based on relationship analysis"""
+def _generate_aggregated_recommendations(relationships: List[Dict[str, Any]], analysis: Dict[str, Any]) -> List[str]:
+    """Generate recommendations based on aggregated relationship analysis"""
     recommendations = []
     
     if not relationships:
         return ["No entity relationships found in the specified timeframe"]
     
-    # Connection pattern recommendations
-    if analysis.get("connection_patterns", {}).get("target_diversity", 0) > 20:
-        recommendations.append("Investigate high target diversity - potential compromise or lateral movement")
+    # High-risk relationship recommendations
+    high_risk_count = analysis.get("risk_assessment", {}).get("high_risk_relationships", 0)
+    if high_risk_count > 5:
+        recommendations.append(f"Critical: {high_risk_count} high-risk relationships detected - immediate investigation required")
+    elif high_risk_count > 0:
+        recommendations.append(f"Warning: {high_risk_count} high-risk relationships found - review recommended")
     
-    # Risk-based recommendations
-    risk_pct = analysis.get("risk_assessment", {}).get("risk_percentage", 0)
-    if risk_pct > 50:
-        recommendations.append(f"Critical: {risk_pct:.1f}% of connections are high-risk - immediate investigation required")
-    elif risk_pct > 20:
-        recommendations.append(f"Warning: {risk_pct:.1f}% of connections are high-risk - review recommended")
-    
-    # Anomaly recommendations
-    anomalies = analysis.get("anomalies", [])
-    if anomalies:
-        recommendations.extend([f"Investigate: {anomaly}" for anomaly in anomalies])
+    # Connection strength recommendations
+    max_strength = analysis.get("strength_distribution", {}).get("max_strength", 0)
+    if max_strength > 200:
+        recommendations.append("Very high connection strength detected - investigate for potential automation or compromise")
     
     # General recommendations
     if len(relationships) > 100:
-        recommendations.append("High activity volume detected - consider narrowing timeframe for detailed analysis")
+        recommendations.append("High relationship volume detected - consider narrowing timeframe for detailed analysis")
     
     if not recommendations:
-        recommendations.append("Entity relationships appear normal - continue monitoring")
+        recommendations.append("Entity relationships appear normal based on aggregated analysis")
     
     return recommendations
-
-
-def _format_timestamp(timestamp: str) -> str:
-    """Format timestamp for display"""
-    try:
-        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-    except (ValueError, AttributeError):
-        return timestamp
