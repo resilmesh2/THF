@@ -27,7 +27,7 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis like 'severity,host' or 'severity,time' for cross-correlations. Keywords triggering multi-dimensional: 'by X and Y', 'correlate X with Y', 'cross-dimensional analysis'."
+    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis using LIST FORMAT: ['severity', 'host'] or ['severity', 'time'] for cross-correlations. Keywords triggering multi-dimensional: 'by X and Y', 'correlate X with Y', 'cross-dimensional analysis', 'combinations'."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(
@@ -368,7 +368,7 @@ class FindAnomaliesTool(WazuhBaseTool):
                 result = await execute(self.opensearch_client, params)
                 
             elif anomaly_type_lower in ["pattern", "patterns", "temporal", "time_pattern", "time_patterns"]:
-                from functions.find_anomalies.detect_pattern import execute
+                from old.detect_pattern import execute
                 result = await execute(self.opensearch_client, params)
                 
             elif anomaly_type_lower in ["behavioral", "behaviour", "behavior", "user_behavior", "host_behavior", "baseline", "baseline_comparison"]:

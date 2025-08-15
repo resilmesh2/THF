@@ -3,8 +3,6 @@ Correlate activities and behaviors across entities using OpenSearch aggregations
 """
 from typing import Dict, Any, List, Optional
 import structlog
-from datetime import datetime
-from collections import defaultdict
 
 logger = structlog.get_logger()
 
@@ -241,7 +239,7 @@ def _build_correlation_aggregation_query(source_type: str, source_id: str, targe
                                 "significant_terms": {
                                     "field": "rule.groups",
                                     "background_filter": {
-                                        "range": {"@timestamp": {"gte": "now-7d", "lte": "now-1h"}}
+                                        "range": {"@timestamp": {"gte": "now-7d/d"}}
                                     }
                                 }
                             },
@@ -303,11 +301,11 @@ def _build_correlation_aggregation_query(source_type: str, source_id: str, targe
                         "filters": {
                             "filters": {
                                 "after_hours": {
-                                    "bool": {
-                                        "should": [
-                                            {"range": {"@timestamp": {"gte": "now/d", "lte": "now/d+6h"}}},
-                                            {"range": {"@timestamp": {"gte": "now/d+20h", "lte": "now/d+24h"}}}
-                                        ]
+                                    "script": {
+                                        "script": {
+                                            "source": "def hour = doc['@timestamp'].value.getHour(); return hour < 6 || hour > 20;",
+                                            "lang": "painless"
+                                        }
                                     }
                                 },
                                 "high_severity": {

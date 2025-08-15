@@ -2,11 +2,10 @@
 Wazuh LLM Assistant - Main FastAPI Application
 """
 import os
-import asyncio
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Optional
 import structlog
 from dotenv import load_dotenv
 

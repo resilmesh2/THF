@@ -3,6 +3,7 @@
     "allow": [
       "Bash(taskkill:*)"
     ],
-    "deny": []
+    "deny": [],
+    "defaultMode": "acceptEdits"
   }
 }

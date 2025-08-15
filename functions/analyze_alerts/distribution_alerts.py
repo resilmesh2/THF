@@ -25,11 +25,24 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         group_by = params.get("group_by", "severity")  # Can be string or list for multi-criteria
         dimensions = params.get("dimensions", "all")  # Selective dimension calculation
         
+        logger.info("Parameter extraction", group_by=group_by, group_by_type=type(group_by))
+        
         # Parse group_by parameter for multi-criteria support
         if isinstance(group_by, str):
-            group_by_list = [dim.strip() for dim in group_by.split(",")] if "," in group_by else [group_by]
+            # logger.info("Processing string group_by", group_by=group_by, contains_comma="," in group_by)
+            if "," in group_by:
+                split_result = group_by.split(",")
+                # logger.info("Split result", split_result=split_result)
+                group_by_list = [dim.strip() for dim in split_result]
+                # logger.info("Processed group_by_list", group_by_list=group_by_list)
+            else:
+                group_by_list = [group_by]
+        elif isinstance(group_by, list):
+            group_by_list = group_by
+            # logger.info("Using list group_by", group_by_list=group_by_list)
         else:
-            group_by_list = group_by if isinstance(group_by, list) else [group_by]
+            group_by_list = [str(group_by)] if group_by else ["severity"]
+            # logger.info("Fallback group_by_list", group_by_list=group_by_list)
         
         logger.info("Analyzing alert distribution", 
                    time_range=time_range, 
@@ -50,12 +63,24 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         }
         
         # Build dynamic aggregations based on parameters
+        logger.info("Group by list length", length=len(group_by_list))
         if len(group_by_list) > 1:
             # Multi-dimensional grouping using composite aggregation
-            query["aggs"]["multi_dimensional_distribution"] = build_composite_aggregation(group_by_list)
+            logger.info("Attempting multi-dimensional analysis", group_by_list=group_by_list)
+            try:
+                composite_agg = build_composite_aggregation(group_by_list)
+                query["aggs"]["multi_dimensional_distribution"] = composite_agg
+                logger.info("Successfully built composite aggregation")
+            except Exception as e:
+                logger.error("Failed to build composite aggregation", error=str(e))
+                # Fallback to single dimension analysis
+                single_dim = group_by_list[0].lower() if group_by_list else "severity"
+                query["aggs"]["severity_distribution"] = build_severity_distribution()
         else:
             # Single dimension or all dimensions
-            single_dim = group_by_list[0].lower()
+            if not group_by_list:
+                group_by_list = ["severity"]  # Default fallback
+            single_dim = group_by_list[0].lower() if isinstance(group_by_list[0], str) else "severity"
             
             if dimensions == "all" or single_dim in ["severity", "all"]:
                 query["aggs"]["severity_distribution"] = build_severity_distribution()
@@ -101,7 +126,25 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         
         if "multi_dimensional_distribution" in response["aggregations"]:
             # Process composite aggregation results
-            result_data = process_composite_results(response["aggregations"]["multi_dimensional_distribution"], total_alerts, group_by_list)
+            try:
+                logger.info("Processing composite aggregation response", 
+                           group_by_list=group_by_list,
+                           aggregation_type=type(response["aggregations"]["multi_dimensional_distribution"]))
+                result_data = process_composite_results(response["aggregations"]["multi_dimensional_distribution"], total_alerts, group_by_list)
+                logger.info("Successfully processed composite results")
+            except Exception as e:
+                import traceback
+                logger.error("Error processing composite results", 
+                           error=str(e), 
+                           group_by_list=group_by_list,
+                           traceback=traceback.format_exc())
+                # Fallback to empty result
+                result_data = {
+                    "multi_dimensional": [],
+                    "grouping_criteria": group_by_list,
+                    "total_combinations": 0,
+                    "error": f"Multi-dimensional processing failed: {str(e)}"
+                }
         else:
             # Process individual dimension results
             if "severity_distribution" in response["aggregations"]:
@@ -128,6 +171,8 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             if "process_distribution" in response["aggregations"]:
                 result_data["processes"] = process_process_distribution(response["aggregations"]["process_distribution"], total_alerts)
         
+        summary_stats = calculate_summary_stats(result_data)
+        
         result = {
             "total_alerts": total_alerts,
             "time_range": time_range,
@@ -135,7 +180,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             "group_by_criteria": group_by_list,
             "dimensions_analyzed": list(result_data.keys()),
             "distributions": result_data,
-            "summary": calculate_summary_stats(result_data),
+            "summary": summary_stats,
             "query_info": {
                 "filters_applied": bool(filters),
                 "group_by": group_by_list,
@@ -170,12 +215,39 @@ def build_composite_aggregation(group_by_list: List[str]) -> Dict[str, Any]:
     for dimension in group_by_list:
         dim_key = dimension.lower()
         if dim_key in field_map:
-            sources.append({
-                dim_key: {
-                    "terms": {"field": field_map[dim_key]}
-                }
-            })
+            field_name = field_map[dim_key]
+            # logger.info("Found field mapping", dim_key=dim_key, field_name=field_name)
+            
+            # Handle timestamp fields differently for composite aggregations
+            if field_name == "@timestamp":
+                sources.append({
+                    dim_key: {
+                        "date_histogram": {
+                            "field": field_name,
+                            "calendar_interval": "1h"
+                        }
+                    }
+                })
+            else:
+                sources.append({
+                    dim_key: {
+                        "terms": {"field": field_name}
+                    }
+                })
+        else:
+            logger.warning("No field mapping found for dimension", dim_key=dim_key)
     
+    if not sources:
+        logger.error("No valid sources created for composite aggregation")
+        # Fallback to simple terms aggregation
+        return {
+            "terms": {
+                "field": "rule.level",
+                "size": 10
+            }
+        }
+    
+    logger.info("Created composite aggregation", sources_count=len(sources))
     return {
         "composite": {
             "sources": sources,
@@ -356,20 +428,36 @@ def get_field_mapping() -> Dict[str, str]:
 # Result Processors
 def process_composite_results(composite_agg: Dict[str, Any], total_alerts: int, group_by_list: List[str]) -> Dict[str, Any]:
     """Process composite aggregation results"""
+    logger.info("Processing composite results", buckets_count=len(composite_agg.get("buckets", [])))
     composite_data = []
     
-    for bucket in composite_agg["buckets"]:
-        bucket_data = {
-            "key": bucket["key"],
-            "count": bucket["doc_count"],
-            "percentage": round((bucket["doc_count"] / total_alerts) * 100, 2) if total_alerts > 0 else 0
-        }
-        
-        # Add correlation metrics if available
-        if "correlation_metrics" in bucket:
-            bucket_data["correlation_metrics"] = bucket["correlation_metrics"]
-        
-        composite_data.append(bucket_data)
+    for i, bucket in enumerate(composite_agg["buckets"]):
+        try:
+            # In composite aggregations, key is a dict with multiple dimensions
+            composite_key = bucket["key"]
+            logger.info("Processing bucket", key_type=type(composite_key), key_value=composite_key)
+            
+            bucket_data = {
+                "composite_key": composite_key,  # Keep the full composite key
+                "dimensions": {},  # Break down individual dimensions
+                "count": bucket["doc_count"],
+                "percentage": round((bucket["doc_count"] / total_alerts) * 100, 2) if total_alerts > 0 else 0
+            }
+            
+            # Extract individual dimension values from composite key
+            if isinstance(composite_key, dict):
+                for dim_name, dim_value in composite_key.items():
+                    bucket_data["dimensions"][dim_name] = dim_value
+            
+            # Add correlation metrics if available
+            if "correlation_metrics" in bucket:
+                bucket_data["correlation_metrics"] = bucket["correlation_metrics"]
+            
+            composite_data.append(bucket_data)
+            
+        except Exception as e:
+            logger.error("Error processing individual bucket", error=str(e), bucket=bucket)
+            continue
     
     return {
         "multi_dimensional": composite_data,
@@ -556,6 +644,7 @@ def calculate_summary_stats(result_data: Dict[str, Any]) -> Dict[str, Any]:
     """Calculate summary statistics from result data"""
     summary = {}
     
+    # Handle single-dimensional distributions
     if "hosts" in result_data:
         summary["unique_hosts"] = len(result_data["hosts"])
     if "rules" in result_data:
@@ -566,8 +655,53 @@ def calculate_summary_stats(result_data: Dict[str, Any]) -> Dict[str, Any]:
         summary["unique_processes"] = len(result_data["processes"])
     if "time" in result_data:
         summary["time_span_hours"] = len(result_data["time"])
+    
+    # Handle multi-dimensional distributions
     if "multi_dimensional" in result_data:
-        summary["total_combinations"] = result_data["multi_dimensional"]["total_combinations"]
+        multi_data = result_data["multi_dimensional"]
+        if isinstance(multi_data, list):
+            # Multi-dimensional data is a list of bucket combinations
+            summary["total_combinations"] = len(multi_data)
+            
+            # Extract unique hosts and severity levels from combinations
+            unique_hosts = set()
+            unique_severities = set()
+            total_alerts = 0
+            max_alerts = 0
+            max_combination = None
+            
+            for bucket in multi_data:
+                if "dimensions" in bucket:
+                    dims = bucket["dimensions"]
+                    if "host" in dims:
+                        unique_hosts.add(dims["host"])
+                    if "severity" in dims:
+                        unique_severities.add(dims["severity"])
+                
+                if "count" in bucket:
+                    alerts_count = bucket["count"]
+                    total_alerts += alerts_count
+                    if alerts_count > max_alerts:
+                        max_alerts = alerts_count
+                        max_combination = bucket.get("composite_key", {})
+            
+            summary["unique_hosts"] = len(unique_hosts)
+            summary["unique_severity_levels"] = len(unique_severities)
+            summary["total_distributed_alerts"] = total_alerts
+            summary["max_alerts_in_combination"] = max_alerts
+            summary["most_active_combination"] = max_combination
+            
+            # Calculate average alerts per combination
+            if len(multi_data) > 0:
+                summary["average_alerts_per_combination"] = round(total_alerts / len(multi_data), 2)
+        
+        elif isinstance(multi_data, dict) and "total_combinations" in multi_data:
+            # Legacy format support
+            summary["total_combinations"] = multi_data["total_combinations"]
+    
+    # Handle total_combinations at root level (current format)
+    if "total_combinations" in result_data:
+        summary["total_combinations"] = result_data["total_combinations"]
     
     return summary
 
