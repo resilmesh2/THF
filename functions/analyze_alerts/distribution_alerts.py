@@ -25,6 +25,28 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         group_by = params.get("group_by", "severity")  # Can be string or list for multi-criteria
         dimensions = params.get("dimensions", "all")  # Selective dimension calculation
         
+        # Handle case where filters is None
+        if filters is None:
+            filters = {}
+        
+        # Handle separate time_start and time_end parameters from LLM
+        time_start = filters.pop("time_start", None)
+        time_end = filters.pop("time_end", None)
+        
+        # If we have separate start/end times, construct a time range
+        if time_start and time_end:
+            from datetime import date
+            today = date.today().strftime("%Y-%m-%d")
+            time_range = f"{time_start} until {time_end}"
+            logger.info("Converting separate time parameters to range", 
+                       time_start=time_start, time_end=time_end, time_range=time_range)
+        
+        # Handle time_range in filters (LLM sometimes puts it there instead of main params)
+        filter_time_range = filters.pop("time_range", None)
+        if filter_time_range:
+            time_range = filter_time_range
+            logger.info("Using time_range from filters", time_range=time_range)
+        
         logger.info("Parameter extraction", group_by=group_by, group_by_type=type(group_by))
         
         # Parse group_by parameter for multi-criteria support
@@ -420,6 +442,8 @@ def get_field_mapping() -> Dict[str, str]:
         "groups": "rule.groups",
         "geographic": "agent.ip",
         "geo": "agent.ip",
+        "location": "agent.ip",
+        "locations": "agent.ip",
         "ip": "agent.ip",
         "process": "data.win.eventdata.processName",
         "processes": "data.win.eventdata.processName"

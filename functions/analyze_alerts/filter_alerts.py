@@ -7,6 +7,30 @@ from .._shared.opensearch_client import WazuhOpenSearchClient
 
 logger = structlog.get_logger()
 
+def get_field_mapping() -> Dict[str, str]:
+    """Get field mapping for user-friendly field names"""
+    return {
+        "severity": "rule.level",
+        "host": "agent.name", 
+        "hosts": "agent.name",
+        "rule": "rule.id",
+        "rules": "rule.id",
+        "user": "data.win.eventdata.targetUserName",
+        "users": "data.win.eventdata.targetUserName", 
+        "time": "@timestamp",
+        "temporal": "@timestamp",
+        "rule_groups": "rule.groups",
+        "groups": "rule.groups",
+        "rule_group": "rule.groups",
+        "geographic": "agent.ip",
+        "geo": "agent.ip", 
+        "location": "agent.ip",
+        "locations": "agent.ip",
+        "ip": "agent.ip",
+        "process": "data.win.eventdata.processName",
+        "processes": "data.win.eventdata.processName"
+    }
+
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Filter alerts by specific criteria and return matching results
@@ -23,6 +47,28 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         time_range = params.get("time_range", "7d")
         filters = params.get("filters", {})
         limit = params.get("limit", 50)
+        
+        # Handle case where filters is None
+        if filters is None:
+            filters = {}
+        
+        # Handle separate time_start and time_end parameters from LLM
+        time_start = filters.pop("time_start", None)
+        time_end = filters.pop("time_end", None)
+        
+        # If we have separate start/end times, construct a time range
+        if time_start and time_end:
+            from datetime import date
+            today = date.today().strftime("%Y-%m-%d")
+            time_range = f"{time_start} until {time_end}"
+            logger.info("Converting separate time parameters to range", 
+                       time_start=time_start, time_end=time_end, time_range=time_range)
+        
+        # Handle time_range in filters (LLM sometimes puts it there instead of main params)
+        filter_time_range = filters.pop("time_range", None)
+        if filter_time_range:
+            time_range = filter_time_range
+            logger.info("Using time_range from filters", time_range=time_range)
         
         logger.info("Filtering alerts", 
                    time_range=time_range, 

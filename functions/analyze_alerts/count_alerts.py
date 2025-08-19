@@ -7,6 +7,30 @@ from .._shared.opensearch_client import WazuhOpenSearchClient
 
 logger = structlog.get_logger()
 
+def get_field_mapping() -> Dict[str, str]:
+    """Get field mapping for user-friendly field names"""
+    return {
+        "severity": "rule.level",
+        "host": "agent.name", 
+        "hosts": "agent.name",
+        "rule": "rule.id",
+        "rules": "rule.id",
+        "user": "data.win.eventdata.targetUserName",
+        "users": "data.win.eventdata.targetUserName", 
+        "time": "@timestamp",
+        "temporal": "@timestamp",
+        "rule_groups": "rule.groups",
+        "groups": "rule.groups",
+        "rule_group": "rule.groups",
+        "geographic": "agent.ip",
+        "geo": "agent.ip", 
+        "location": "agent.ip",
+        "locations": "agent.ip",
+        "ip": "agent.ip",
+        "process": "data.win.eventdata.processName",
+        "processes": "data.win.eventdata.processName"
+    }
+
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Count alerts matching specified criteria
