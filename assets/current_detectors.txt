@@ -1,0 +1,404 @@
+{
+  "took": 2,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 4,
+      "relation": "eq"
+    },
+    "max_score": 1,
+    "hits": [
+      {
+        "_index": ".opendistro-anomaly-detectors",
+        "_id": "KRgHrZgBvo1LfHnMYrYi",
+        "_version": 1,
+        "_seq_no": 6,
+        "_primary_term": 1,
+        "_score": 1,
+        "_source": {
+          "description": "RCF detector for threshold anomalies in alert volumes and severity",
+          "rules": [],
+          "history": 40,
+          "feature_attributes": [
+            {
+              "feature_id": "JRgHrZgBvo1LfHnMXLZq",
+              "feature_enabled": true,
+              "feature_name": "total_alerts",
+              "aggregation_query": {
+                "alert_count": {
+                  "value_count": {
+                    "field": "_id"
+                  }
+                }
+              }
+            },
+            {
+              "feature_id": "JhgHrZgBvo1LfHnMXLZr",
+              "feature_enabled": true,
+              "feature_name": "severity_sum",
+              "aggregation_query": {
+                "severity_total": {
+                  "sum": {
+                    "field": "rule.level"
+                  }
+                }
+              }
+            },
+            {
+              "feature_id": "JxgHrZgBvo1LfHnMXLZr",
+              "feature_enabled": true,
+              "feature_name": "avg_severity",
+              "aggregation_query": {
+                "severity_avg": {
+                  "avg": {
+                    "field": "rule.level"
+                  }
+                }
+              }
+            },
+            {
+              "feature_id": "KBgHrZgBvo1LfHnMXLZr",
+              "feature_enabled": true,
+              "feature_name": "unique_rules",
+              "aggregation_query": {
+                "rule_diversity": {
+                  "cardinality": {
+                    "field": "rule.id"
+                  }
+                }
+              }
+            }
+          ],
+          "recency_emphasis": 2560,
+          "schema_version": 0,
+          "time_field": "@timestamp",
+          "last_update_time": 1755249599008,
+          "indices": [
+            "wazuh-alerts-*"
+          ],
+          "window_delay": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 1
+            }
+          },
+          "detection_interval": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 10
+            }
+          },
+          "name": "wazuh-threshold-anomaly-detector-20250815_101957",
+          "filter_query": {
+            "match_all": {
+              "boost": 1
+            }
+          },
+          "shingle_size": 8,
+          "user": {
+            "backend_roles": [
+              "admin"
+            ],
+            "custom_attribute_names": [],
+            "roles": [
+              "own_index",
+              "all_access"
+            ],
+            "name": "admin",
+            "user_requested_tenant": null
+          },
+          "detector_type": "SINGLE_ENTITY"
+        }
+      },
+      {
+        "_index": ".opendistro-anomaly-detectors",
+        "_id": "PhgHrZgBvo1LfHnMaLYl",
+        "_version": 1,
+        "_seq_no": 7,
+        "_primary_term": 1,
+        "_score": 1,
+        "_source": {
+          "category_field": [
+            "agent.name"
+          ],
+          "description": "RCF detector for per-host behavioral anomalies",
+          "rules": [],
+          "history": 40,
+          "feature_attributes": [
+            {
+              "feature_id": "OxgHrZgBvo1LfHnMYras",
+              "feature_enabled": true,
+              "feature_name": "host_alert_count",
+              "aggregation_query": {
+                "alerts_per_host": {
+                  "value_count": {
+                    "field": "_id"
+                  }
+                }
+              }
+            },
+            {
+              "feature_id": "PBgHrZgBvo1LfHnMYras",
+              "feature_enabled": true,
+              "feature_name": "host_severity_sum",
+              "aggregation_query": {
+                "severity_per_host": {
+                  "sum": {
+                    "field": "rule.level"
+                  }
+                }
+              }
+            },
+            {
+              "feature_id": "PRgHrZgBvo1LfHnMYras",
+              "feature_enabled": true,
+              "feature_name": "host_rule_diversity",
+              "aggregation_query": {
+                "unique_rules_per_host": {
+                  "cardinality": {
+                    "field": "rule.id"
+                  }
+                }
+              }
+            }
+          ],
+          "recency_emphasis": 2560,
+          "schema_version": 0,
+          "time_field": "@timestamp",
+          "last_update_time": 1755249600548,
+          "indices": [
+            "wazuh-alerts-*"
+          ],
+          "window_delay": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 2
+            }
+          },
+          "detection_interval": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 15
+            }
+          },
+          "name": "wazuh-behavioral-anomaly-detector-20250815_101958",
+          "filter_query": {
+            "match_all": {
+              "boost": 1
+            }
+          },
+          "shingle_size": 8,
+          "user": {
+            "backend_roles": [
+              "admin"
+            ],
+            "custom_attribute_names": [],
+            "roles": [
+              "own_index",
+              "all_access"
+            ],
+            "name": "admin",
+            "user_requested_tenant": null
+          },
+          "detector_type": "MULTI_ENTITY"
+        }
+      },
+      {
+        "_index": ".opendistro-anomaly-detectors",
+        "_id": "oRgHrZgBvo1LfHnMbraC",
+        "_version": 1,
+        "_seq_no": 8,
+        "_primary_term": 1,
+        "_score": 1,
+        "_source": {
+          "category_field": [
+            "agent.name"
+          ],
+          "description": "RCF detector for failed login attempts per host",
+          "rules": [],
+          "history": 40,
+          "feature_attributes": [
+            {
+              "feature_id": "TBgHrZgBvo1LfHnMaLa4",
+              "feature_enabled": true,
+              "feature_name": "failed_login_count",
+              "aggregation_query": {
+                "failed_attempts": {
+                  "value_count": {
+                    "field": "_id"
+                  }
+                }
+              }
+            }
+          ],
+          "recency_emphasis": 2560,
+          "schema_version": 0,
+          "time_field": "@timestamp",
+          "last_update_time": 1755249602177,
+          "indices": [
+            "wazuh-alerts-*"
+          ],
+          "window_delay": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 1
+            }
+          },
+          "detection_interval": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 5
+            }
+          },
+          "name": "wazuh-failed-login-detector-20250815_102000",
+          "filter_query": {
+            "bool": {
+              "adjust_pure_negative": true,
+              "should": [
+                {
+                  "wildcard": {
+                    "rule.description": {
+                      "boost": 1,
+                      "wildcard": "*failed*login*"
+                    }
+                  }
+                },
+                {
+                  "wildcard": {
+                    "rule.description": {
+                      "boost": 1,
+                      "wildcard": "*authentication*failure*"
+                    }
+                  }
+                },
+                {
+                  "wildcard": {
+                    "rule.description": {
+                      "boost": 1,
+                      "wildcard": "*logon*failed*"
+                    }
+                  }
+                },
+                {
+                  "terms": {
+                    "boost": 1,
+                    "rule.groups": [
+                      "authentication_failed",
+                      "authentication_failures"
+                    ]
+                  }
+                }
+              ],
+              "minimum_should_match": "1",
+              "boost": 1
+            }
+          },
+          "shingle_size": 8,
+          "user": {
+            "backend_roles": [
+              "admin"
+            ],
+            "custom_attribute_names": [],
+            "roles": [
+              "own_index",
+              "all_access"
+            ],
+            "name": "admin",
+            "user_requested_tenant": null
+          },
+          "detector_type": "MULTI_ENTITY"
+        }
+      },
+      {
+        "_index": ".opendistro-anomaly-detectors",
+        "_id": "0hgHrZgBvo1LfHnMc7b3",
+        "_version": 1,
+        "_seq_no": 9,
+        "_primary_term": 1,
+        "_score": 1,
+        "_source": {
+          "description": "RCF detector for high severity alert spikes",
+          "rules": [],
+          "history": 40,
+          "feature_attributes": [
+            {
+              "feature_id": "pxgHrZgBvo1LfHnMb7YG",
+              "feature_enabled": true,
+              "feature_name": "high_severity_count",
+              "aggregation_query": {
+                "critical_alerts": {
+                  "value_count": {
+                    "field": "_id"
+                  }
+                }
+              }
+            },
+            {
+              "feature_id": "qBgHrZgBvo1LfHnMb7YG",
+              "feature_enabled": true,
+              "feature_name": "max_severity",
+              "aggregation_query": {
+                "highest_severity": {
+                  "max": {
+                    "field": "rule.level"
+                  }
+                }
+              }
+            }
+          ],
+          "recency_emphasis": 2560,
+          "schema_version": 0,
+          "time_field": "@timestamp",
+          "last_update_time": 1755249603575,
+          "indices": [
+            "wazuh-alerts-*"
+          ],
+          "window_delay": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 1
+            }
+          },
+          "detection_interval": {
+            "period": {
+              "unit": "Minutes",
+              "interval": 5
+            }
+          },
+          "name": "wazuh-high-severity-detector-20250815_102001",
+          "filter_query": {
+            "range": {
+              "rule.level": {
+                "include_lower": true,
+                "include_upper": true,
+                "from": 8,
+                "boost": 1,
+                "to": null
+              }
+            }
+          },
+          "shingle_size": 8,
+          "user": {
+            "backend_roles": [
+              "admin"
+            ],
+            "custom_attribute_names": [],
+            "roles": [
+              "own_index",
+              "all_access"
+            ],
+            "name": "admin",
+            "user_requested_tenant": null
+          },
+          "detector_type": "SINGLE_ENTITY"
+        }
+      }
+    ]
+  }
+}
