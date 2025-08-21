@@ -156,7 +156,7 @@ class InvestigateEntityTool(WazuhBaseTool):
 class MapRelationshipsTool(WazuhBaseTool):
     """Tool for mapping relationships between entities"""
     name: str = "map_relationships"
-    description: str = "Map and analyze relationships between entities (users, hosts, files, processes, IPs). Relationship types: 'entity_to_entity' (direct connections), 'access_patterns' (behavioral analysis and access patterns), 'activity_correlation' (correlated activities across entities). For access queries like 'users who accessed host X', use source_type='host', source_id='X', target_type='user' to find user access events on that host. For 'hosts accessed by user Y', use source_type='user', source_id='Y', target_type='host'."
+    description: str = "Map and analyze relationships between entities (users, hosts, files, processes, IPs). Relationship types: 'entity_to_entity' (map direct entity connections with connection strength, frequency counts, latest connection details, and relationship risk scoring - use for queries about 'what/who is connected to X', 'connection strength', 'latest connections', 'direct relationships', or 'connection counts'), 'behavioral_correlation' (analyze behavioral patterns, access sequences, authentication flows, temporal clustering, and coordinated activities - use for queries about 'behavior analysis', 'access patterns', 'suspicious activity', 'coordinated actions', 'authentication patterns', or 'temporal correlations'). For access queries like 'users who accessed host X', use source_type='host', source_id='X', target_type='user'. For 'hosts accessed by user Y', use source_type='user', source_id='Y', target_type='host'."
     args_schema: Type[MapRelationshipsSchema] = MapRelationshipsSchema
     
     def _run(
@@ -207,12 +207,8 @@ class MapRelationshipsTool(WazuhBaseTool):
                 from functions.map_relationships.entity_to_entity import execute
                 result = await execute(self.opensearch_client, params)
                 
-            elif rel_lower in ["access_patterns", "access", "patterns", "behavior"]:
-                from functions.map_relationships.access_patterns import execute
-                result = await execute(self.opensearch_client, params)
-                
-            elif rel_lower in ["activity_correlation", "correlation", "activity", "activities"]:
-                from functions.map_relationships.activity_correlation import execute
+            elif rel_lower in ["behavioral_correlation", "behavioural_correlation", "access_patterns", "access", "patterns", "behavior", "behaviour", "activity_correlation", "correlation", "activity", "activities"]:
+                from functions.map_relationships.behavioural_correlation import execute
                 result = await execute(self.opensearch_client, params)
                 
             else:

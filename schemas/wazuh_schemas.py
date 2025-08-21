@@ -58,8 +58,7 @@ class ViewType(str, Enum):
 class RelationshipType(str, Enum):
     """Types of relationship mapping"""
     ENTITY_TO_ENTITY = "entity_to_entity"
-    ACCESS_PATTERNS = "access_patterns"
-    ACTIVITY_CORRELATION = "activity_correlation"
+    BEHAVIORAL_CORRELATION = "behavioral_correlation"
 
 
 class VulnerabilityAction(str, Enum):
@@ -98,7 +97,7 @@ class MapRelationshipsSchema(BaseModel):
     source_type: EntityType = Field(description="Type of source entity")
     source_id: str = Field(description="ID of source entity")
     target_type: Optional[EntityType] = Field(default=None, description="Type of target entity")
-    relationship_type: RelationshipType = Field(description="Type of relationship to explore")
+    relationship_type: RelationshipType = Field(description="Type of relationship to explore: 'entity_to_entity' (map direct entity connections with connection strength, frequency counts, latest connection details, and relationship risk scoring - use for queries about 'what/who is connected to X', 'connection strength', 'latest connections', 'direct relationships', or 'connection counts'), 'behavioral_correlation' (analyze behavioral patterns, access sequences, authentication flows, temporal clustering, and coordinated activities - use for queries about 'behavior analysis', 'access patterns', 'suspicious activity', 'coordinated actions', 'authentication patterns', or 'temporal correlations')")
     timeframe: Optional[str] = Field(default="24h", description="Time frame for relationship mapping")
 
 
