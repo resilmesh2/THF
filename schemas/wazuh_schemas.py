@@ -78,7 +78,7 @@ class AgentMonitorAction(str, Enum):
 class AnalyzeAlertsSchema(BaseModel):
     """Schema for analyze_alerts function"""
     action: AlertAction = Field(description="Type of analysis to perform")
-    group_by: Optional[Union[str, List[str]]] = Field(default=None, description="Field(s) to group results by. Single dimension: 'severity', 'host', 'rule', 'time', 'user', 'process'. Multi-dimensional: ['severity', 'host'] or 'severity,host' for cross-correlations. Supports both list format ['severity', 'time'] and comma-separated string 'severity,time'.")
+    group_by: Optional[Union[str, List[str]]] = Field(default=None, description="Field(s) to group results by. Single dimension: 'severity', 'host', 'rule', 'time', 'user', 'process'. Multi-dimensional: ['severity', 'host'] or 'severity,host' for cross-correlations. TEMPORAL ANALYSIS: Use 'time', 'hourly', 'periods', 'histogram' for histogram-style bucket outputs with time-series data. Supports both list format ['severity', 'time'] and comma-separated string 'severity,time'. Temporal keywords automatically detected: 'today', 'hours', 'hourly', 'periods', 'histogram', 'timeline'.")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="Filters to apply")
     limit: Optional[int] = Field(default=10, description="Maximum number of results")
     time_range: Optional[str] = Field(default="7d", description="Time range for analysis")

@@ -27,7 +27,7 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis using LIST FORMAT: ['severity', 'host'] or ['severity', 'time'] for cross-correlations. Keywords triggering multi-dimensional: 'by X and Y', 'correlate X with Y', 'cross-dimensional analysis', 'combinations'."
+    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis using LIST FORMAT: ['severity', 'host'] or ['severity', 'time'] for cross-correlations. TEMPORAL DISTRIBUTIONS: Queries with 'hourly', 'today', 'periods', 'histogram', 'timeline' automatically generate histogram-style bucket outputs with time-series data showing hourly breakdowns. Keywords triggering multi-dimensional: 'by X and Y', 'correlate X with Y', 'cross-dimensional analysis', 'combinations'. Temporal keywords: 'today', 'hours', 'hourly', 'periods', 'histogram', 'timeline', 'time distribution'."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(
