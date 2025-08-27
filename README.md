@@ -6,6 +6,35 @@ A natural language interface for Wazuh SIEM using LangChain and OpenAI function 
 
 This project implements an intelligent assistant that allows security analysts to query Wazuh SIEM data using natural language. The system converts user queries into structured function calls, executes them against the Wazuh OpenSearch backend, and returns human-readable security insights.
 
+## Installation Instructions & Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/stephen-devops/wazuh-llm-assistant.git
+   cd wazuh-llm-assistant/
+   ```
+   
+2. Install required dependencies
+   ```bash
+   pip install -r requirements.txt
+   ```
+   
+## Running the Application
+
+Once dependencies are installed, you need to start both the FastAPI backend and the Streamlit UI.
+
+1. Start the FastAPI backend server:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+
+2. In a new terminal, start the Streamlit UI:
+   ```bash
+   streamlit run ./streamlit_ui.py
+   ```
+
+The backend will be available at `http://localhost:8000` and the UI at `http://localhost:8501` by default.
+
 ## Architecture
 
 ```
@@ -27,26 +56,26 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 1. **analyze_alerts** - Alert analysis with ranking, filtering, counting, distribution
 2. **investigate_entity** - Entity investigation (host, user, process, file)
 3. **detect_threats** - MITRE ATT&CK techniques, tactics, threat actors
-4. **map_relationships** - Entity relationships, access patterns, activity correlation
-5. **find_anomalies** - Threshold, pattern, behavioral, trend detection
+4. **map_relationships** - Entity relationships, activity correlation
+5. **find_anomalies** - Threshold, behavioral, trend detection
 6. **trace_timeline** - Chronological event reconstruction
 7. **check_vulnerabilities** - CVE checking and vulnerability assessment
 8. **monitor_agents** - Agent status, health, and connectivity monitoring
 
 ### Example Queries
 
-- "Show me the top 10 hosts with most alerts this week"
+- "Show me the top 10 hosts with most alerts this week."
 - "What alerts are there for user john.doe?"
-- "Find T1055 process injection techniques detected recently"
-- "Which users accessed host web-server-01 in the last 24 hours?"
-- "Show me unusual login patterns from yesterday"
-- "Check for Log4Shell vulnerabilities on our Windows hosts"
+- "Find T1055 process injection techniques detected recently."
+- "Which users accessed host win10-01 in the last 24 hours?"
+- "Show me unusual login patterns from yesterday."
+- "Check for Log4Shell vulnerabilities on our Windows hosts."
 - "Which agents are disconnected right now?"
 
 ## Technology Stack
 
 - **LangChain** - Agent orchestration and tool integration
-- **OpenAI GPT-4** - Natural language understanding and function calling
+- **Claude 3.5 Sonnet (Anthropic)** - Natural language understanding and function calling
 - **OpenSearch Python Client** - Wazuh backend integration
 - **FastAPI** - Async web framework
 - **Pydantic** - Data validation and serialization
@@ -59,41 +88,17 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 ### Prerequisites
 
 - Python 3.9+
-- OpenAI API key
+- Anthropic API key
 - Access to Wazuh OpenSearch cluster
 - Redis (optional, for caching)
-
-### Setup
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/wazuh-llm-assistant.git
-cd wazuh-llm-assistant
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Configure environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-4. Start the service:
-```bash
-python main.py
-```
 
 ## Configuration
 
 ### Environment Variables
 
 ```env
-# OpenAI Configuration
-OPENAI_API_KEY=your-openai-api-key
+# Anthropic Configuration
+ANTHROPIC_API_KEY=your-anthropic-api-key
 
 # OpenSearch Configuration
 OPENSEARCH_HOST=your-opensearch-host
@@ -129,13 +134,12 @@ curl -X POST "http://localhost:8000/query" \
   -d '{"query": "Show me critical alerts from the last hour"}'
 ```
 
-### Python SDK
+### Python SDK Example
 
 ```python
 from agent.wazuh_agent import WazuhSecurityAgent
 
 agent = WazuhSecurityAgent(
-    openai_api_key="your-api-key",
     opensearch_config={
         "host": "your-opensearch-host",
         "port": 9200,
