@@ -1,6 +1,6 @@
 # Wazuh LLM Assistant
 
-A natural language interface for Wazuh SIEM using LangChain and OpenAI function calling.
+A natural language interface for Wazuh SIEM using an Anthropic Claude LLM and LangChain tool/function calling.
 
 ## Overview
 
@@ -77,11 +77,11 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 - **LangChain** - Agent orchestration and tool integration
 - **Claude 3.5 Sonnet (Anthropic)** - Natural language understanding and function calling
 - **OpenSearch Python Client** - Wazuh backend integration
+- **Wazuh API** - Agent monitoring and management
 - **FastAPI** - Async web framework
+- **Streamlit** - Web UI framework
 - **Pydantic** - Data validation and serialization
-- **Redis** - Caching and session management
 - **Structlog** - Structured logging
-- **OpenTelemetry** - Observability and tracing
 
 ## Installation
 
