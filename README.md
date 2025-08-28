@@ -18,6 +18,11 @@ This project implements an intelligent assistant that allows security analysts t
    ```bash
    pip install -r requirements.txt
    ```
+
+3. Configure environment variables
+   ```bash
+   cp .env.example .env
+   ```
    
 ## Running the Application
 
@@ -43,11 +48,11 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 
 ### Core Components
 
-- **LangChain Agent**: Orchestrates conversation flow and tool usage
-- **Function Tools**: 8 core security analysis functions with sub-actions
-- **OpenSearch Client**: Direct integration with Wazuh's OpenSearch backend
-- **FastAPI Server**: REST API for web interface integration
-- **Pydantic Schemas**: Type-safe parameter validation
+- **LLM Agent** (Claude 3.5 Sonnet): Orchestrates conversation flow and tool usage
+- **Security Functions** (8 tools): 8 core security analysis functions with sub-actions
+- **Data Integration**: (OpenSearch + Wazih API) Direct integration with Wazuh's OpenSearch backend
+- **Web Interface** (FastAPI): REST API for web interface integration
+- **Type Safety** (Pydantic): Type-safe parameter validation
 
 ## Features
 
@@ -65,7 +70,7 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 ### Example Queries
 
 - "Show me the top 10 hosts with most alerts this week."
-- "What alerts are there for user john.doe?"
+- "What alerts are there for user SYSTEM?"
 - "Find T1055 process injection techniques detected recently."
 - "Which users accessed host win10-01 in the last 24 hours?"
 - "Show me unusual login patterns from yesterday."
@@ -74,14 +79,25 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 
 ## Technology Stack
 
-- **LangChain** - Agent orchestration and tool integration
-- **Claude 3.5 Sonnet (Anthropic)** - Natural language understanding and function calling
-- **OpenSearch Python Client** - Wazuh backend integration
-- **FastAPI** - Async web framework
-- **Pydantic** - Data validation and serialization
-- **Redis** - Caching and session management
-- **Structlog** - Structured logging
-- **OpenTelemetry** - Observability and tracing
+- **LLM & Agent**
+- Claude 3.5 Sonnet (Anthropic) - Natural language understanding and function calling
+- LangChain - Agent orchestration framework
+
+
+- **Backend**
+- FastAPI - Async web framework
+- OpenSearch Python Client - Wazuh alerts integration
+- Wazuh API - Agent monitoring integration
+
+
+- **Frontend**
+- Streamlit - Web UI framework
+
+
+- **Supporting**
+- Pydantic - Data validation and serialization
+- Structlog - Structured logging
+- Redis - Caching and session management
 
 ## Installation
 
@@ -106,6 +122,14 @@ OPENSEARCH_PORT=9200
 OPENSEARCH_USER=admin
 OPENSEARCH_PASSWORD=your-password
 OPENSEARCH_USE_SSL=true
+
+# Wazuh API Configuration
+WAZUH_API_HOST=localhost
+WAZUH_API_PORT=55000
+WAZUH_API_USERNAME=wazuh
+WAZUH_API_PASSWORD=your-wazuh-api-password
+WAZUH_API_USE_SSL=true
+WAZUH_API_VERIFY_CERTS=false
 
 # Redis Configuration (optional)
 REDIS_HOST=localhost
