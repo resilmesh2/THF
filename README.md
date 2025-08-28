@@ -79,25 +79,15 @@ User Query → LLM Function Calling → Function Dispatcher → Wazuh Backend �
 
 ## Technology Stack
 
-- **LLM & Agent**
-- Claude 3.5 Sonnet (Anthropic) - Natural language understanding and function calling
-- LangChain - Agent orchestration framework
-
-
-- **Backend**
-- FastAPI - Async web framework
-- OpenSearch Python Client - Wazuh alerts integration
-- Wazuh API - Agent monitoring integration
-
-
-- **Frontend**
-- Streamlit - Web UI framework
-
-
-- **Supporting**
-- Pydantic - Data validation and serialization
-- Structlog - Structured logging
-- Redis - Caching and session management
+- **Claude 3.5 Sonnet (Anthropic)** - Natural language understanding and function calling
+- **LangChain** - Agent orchestration framework and tools
+- **FastAPI** - Async web framework
+- **OpenSearch Python Client** - Wazuh alerts integration
+- **Wazuh API** - Agent monitoring integration
+- **Streamlit** - Web UI framework
+- **Pydantic** - Data validation and serialization
+- **Structlog** - Structured logging
+- **Redis** - Caching and session management
 
 ## Installation
 
