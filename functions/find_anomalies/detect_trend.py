@@ -448,9 +448,14 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         rcf_baseline = rcf_trend_baselines[feature_name]
                         baseline_mean = rcf_baseline.get("current_baseline", mean_value)
                         
-                        # Use RCF-learned thresholds instead of hard-coded multipliers
-                        trend_threshold = rcf_baseline.get("trend_threshold", baseline_mean) * multiplier
-                        escalation_threshold = rcf_baseline.get("escalation_threshold", baseline_mean) * multiplier
+                        # Use RCF-learned thresholds directly (already calculated with proper multipliers)
+                        trend_threshold = rcf_baseline.get("trend_threshold", baseline_mean)
+                        escalation_threshold = rcf_baseline.get("escalation_threshold", baseline_mean)
+                        
+                        # Apply sensitivity adjustment only if needed
+                        if multiplier != 1.0:
+                            trend_threshold *= multiplier
+                            escalation_threshold *= multiplier
                         
                         # Detect trend anomalies using RCF thresholds
                         current_deviation = abs(mean_value - baseline_mean)
@@ -561,10 +566,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                     is_anomaly = False
                     anomaly_reasons = []
                     
-                    # Use RCF-derived slope threshold instead of hard-coded multiplier
+                    # Use RCF-derived trend threshold instead of arbitrary slope calculations
                     if rcf_trend_baselines and rcf_trend_baselines.get("alert_volume_trend"):
-                        rcf_slope_threshold = rcf_trend_baselines["alert_volume_trend"].get("rcf_trend_multiplier", 1.2)
-                        slope_threshold = rcf_slope_threshold * rcf_threshold_mean
+                        # Use the actual RCF-learned trend threshold for slope comparison
+                        baseline_data = rcf_trend_baselines["alert_volume_trend"]
+                        slope_threshold = baseline_data.get("trend_threshold", baseline_data.get("std", 1.0))
                     else:
                         # Statistical fallback based on host data distribution
                         if len(host_alert_counts) > 1:
@@ -585,9 +591,10 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                     if len(host_severity_trend) >= 3:
                         severity_slope = statistics.linear_regression(range(len(host_severity_trend)), host_severity_trend).slope
                         
-                        # Use RCF-derived severity escalation threshold
+                        # Use RCF-derived severity escalation threshold directly
                         if rcf_trend_baselines and rcf_trend_baselines.get("severity_escalation_trend"):
-                            severity_threshold = rcf_trend_baselines["severity_escalation_trend"].get("rcf_escalation_multiplier", 1.5) * 0.3
+                            severity_baseline = rcf_trend_baselines["severity_escalation_trend"]
+                            severity_threshold = severity_baseline.get("escalation_threshold", severity_baseline.get("std", 1.0))
                         else:
                             # Statistical fallback based on severity data
                             severity_std = statistics.stdev(host_severity_trend) if len(host_severity_trend) > 1 else 1.0
@@ -606,7 +613,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                             "anomaly_score": min(100, abs(host_slope) * 1000),
                             "anomaly_reasons": anomaly_reasons,
                             "time_series": [{"period": i, "count": count} for i, count in enumerate(host_alert_counts)],
-                            "risk_level": "High" if abs(host_slope) > slope_threshold * 2.5 else "Medium"
+                            "risk_level": "High" if abs(host_slope) > slope_threshold * multiplier else "Medium"
                         })
         
         # Analyze user activity trends
@@ -633,7 +640,8 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                     
                     # Check for significant trends using RCF-learned baselines
                     if rcf_trend_baselines and rcf_trend_baselines.get("temporal_spread_trend"):
-                        user_slope_threshold = rcf_trend_baselines["temporal_spread_trend"].get("rcf_trend_multiplier", 1.0) * 0.5
+                        temporal_baseline = rcf_trend_baselines["temporal_spread_trend"]
+                        user_slope_threshold = temporal_baseline.get("trend_threshold", temporal_baseline.get("std", 1.0))
                     else:
                         # Statistical fallback for user activity trends
                         if len(user_activity_counts) > 1:
@@ -651,7 +659,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                             "anomaly_score": min(100, abs(slope) * 500),
                             "anomaly_reason": f"{'Increasing' if slope > 0 else 'Decreasing'} user activity trend",
                             "time_series": [{"period": i, "count": count} for i, count in enumerate(user_activity_counts)],
-                            "risk_level": "Medium" if abs(slope) > user_slope_threshold * 2 else "Low"
+                            "risk_level": "Medium" if abs(slope) > user_slope_threshold * multiplier else "Low"
                         })
                 except (ValueError, statistics.StatisticsError, ZeroDivisionError):
                     continue  # Skip if regression fails
@@ -686,7 +694,8 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                     
                     # Check for significant trends using RCF-learned attack diversity patterns
                     if rcf_trend_baselines and rcf_trend_baselines.get("attack_diversity_trend"):
-                        rule_slope_threshold = rcf_trend_baselines["attack_diversity_trend"].get("rcf_trend_multiplier", 1.2) * 0.8
+                        diversity_baseline = rcf_trend_baselines["attack_diversity_trend"]
+                        rule_slope_threshold = diversity_baseline.get("trend_threshold", diversity_baseline.get("std", 1.0))
                     else:
                         # Statistical fallback for rule firing trends
                         if len(rule_fire_counts) > 1:
@@ -705,7 +714,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                             "anomaly_score": min(100, abs(slope) * 300),
                             "anomaly_reason": f"{'Increasing' if slope > 0 else 'Decreasing'} rule firing trend",
                             "time_series": [{"period": i, "count": count} for i, count in enumerate(rule_fire_counts)],
-                            "risk_level": "High" if abs(slope) > rule_slope_threshold * 2 else "Medium"
+                            "risk_level": "High" if abs(slope) > rule_slope_threshold * multiplier else "Medium"
                         })
                 except (ValueError, statistics.StatisticsError, ZeroDivisionError):
                     continue  # Skip if regression fails
@@ -733,7 +742,8 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Use RCF-learned thresholds for failed login trend analysis
                 if rcf_trend_baselines and rcf_trend_baselines.get("impact_progression_trend"):
-                    failed_login_threshold = rcf_trend_baselines["impact_progression_trend"].get("rcf_trend_multiplier", 1.0) * 0.3
+                    impact_baseline = rcf_trend_baselines["impact_progression_trend"]
+                    failed_login_threshold = impact_baseline.get("trend_threshold", impact_baseline.get("std", 1.0))
                     min_failures_threshold = max(3, int(rcf_trend_baselines.get("alert_volume_trend", {}).get("mean", 5) * 0.1))
                 else:
                     # Statistical fallback for failed login trends
@@ -752,7 +762,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "anomaly_score": min(100, abs(slope) * 400),
                         "anomaly_reason": f"{'Increasing' if slope > 0 else 'Decreasing'} failed login trend",
                         "time_series": failed_login_trends,
-                        "risk_level": "Critical" if slope > failed_login_threshold * 3 else "High"
+                        "risk_level": "Critical" if slope > failed_login_threshold * multiplier else "High"
                     }
             except (ValueError, statistics.StatisticsError, ZeroDivisionError):
                 pass  # Skip if regression fails

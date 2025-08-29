@@ -459,8 +459,15 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                     if feature_name in rcf_behavioral_baselines and current_value > 0:
                         rcf_baseline = rcf_behavioral_baselines[feature_name]
                         baseline_mean = rcf_baseline.get("current_baseline", 0)
-                        behavioral_threshold = rcf_baseline.get("behavioral_threshold", baseline_mean) * multiplier
-                        anomaly_threshold = rcf_baseline.get("anomaly_threshold", baseline_mean) * multiplier
+                        
+                        # Use RCF-learned thresholds directly (already calculated with proper multipliers)
+                        behavioral_threshold = rcf_baseline.get("behavioral_threshold", baseline_mean)
+                        anomaly_threshold = rcf_baseline.get("anomaly_threshold", baseline_mean)
+                        
+                        # Apply sensitivity adjustment only if needed
+                        if multiplier != 1.0:
+                            behavioral_threshold *= multiplier
+                            anomaly_threshold *= multiplier
                         
                         # Detect behavioral anomalies using RCF thresholds
                         deviation = abs(current_value - baseline_mean)
@@ -519,7 +526,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 if "user_activity_patterns" in rcf_behavioral_baselines and user_diversity > 0:
                     baseline_data = rcf_behavioral_baselines["user_activity_patterns"]
                     baseline_mean = baseline_data.get("current_baseline", 0)
-                    threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                    threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                    
+                    # Apply sensitivity adjustment only if needed
+                    if multiplier != 1.0:
+                        threshold *= multiplier
                     
                     if user_diversity > threshold:
                         deviation_ratio = user_diversity / baseline_mean if baseline_mean > 0 else user_diversity
@@ -532,7 +543,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 if "process_execution_patterns" in rcf_behavioral_baselines and process_diversity > 0:
                     baseline_data = rcf_behavioral_baselines["process_execution_patterns"]
                     baseline_mean = baseline_data.get("current_baseline", 0)
-                    threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                    threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                    
+                    # Apply sensitivity adjustment only if needed
+                    if multiplier != 1.0:
+                        threshold *= multiplier
                     
                     if process_diversity > threshold:
                         deviation_ratio = process_diversity / baseline_mean if baseline_mean > 0 else process_diversity
@@ -545,7 +560,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 if "file_access_patterns" in rcf_behavioral_baselines and file_access_count > 0:
                     baseline_data = rcf_behavioral_baselines["file_access_patterns"]
                     baseline_mean = baseline_data.get("current_baseline", 0)
-                    threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                    threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                    
+                    # Apply sensitivity adjustment only if needed
+                    if multiplier != 1.0:
+                        threshold *= multiplier
                     
                     if file_access_count > threshold:
                         deviation_ratio = file_access_count / baseline_mean if baseline_mean > 0 else file_access_count
@@ -558,7 +577,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 if "network_behavior_patterns" in rcf_behavioral_baselines and network_diversity > 0:
                     baseline_data = rcf_behavioral_baselines["network_behavior_patterns"]
                     baseline_mean = baseline_data.get("current_baseline", 0)
-                    threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                    threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                    
+                    # Apply sensitivity adjustment only if needed
+                    if multiplier != 1.0:
+                        threshold *= multiplier
                     
                     if network_diversity > threshold:
                         deviation_ratio = network_diversity / baseline_mean if baseline_mean > 0 else network_diversity
@@ -614,8 +637,13 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             if rcf_behavioral_baselines and "user_activity_patterns" in rcf_behavioral_baselines:
                 baseline_data = rcf_behavioral_baselines["user_activity_patterns"]
                 baseline_mean = baseline_data.get("current_baseline", 0)
-                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
-                anomaly_threshold = baseline_data.get("anomaly_threshold", baseline_mean) * multiplier
+                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                anomaly_threshold = baseline_data.get("anomaly_threshold", baseline_mean)
+                
+                # Apply sensitivity adjustment only if needed
+                if multiplier != 1.0:
+                    behavioral_threshold *= multiplier
+                    anomaly_threshold *= multiplier
                 
                 # Host diversity analysis (lateral movement detection)
                 if host_diversity > behavioral_threshold:
@@ -697,7 +725,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             if rcf_behavioral_baselines and "process_execution_patterns" in rcf_behavioral_baselines:
                 baseline_data = rcf_behavioral_baselines["process_execution_patterns"]
                 baseline_mean = baseline_data.get("current_baseline", 0)
-                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                
+                # Apply sensitivity adjustment only if needed
+                if multiplier != 1.0:
+                    behavioral_threshold *= multiplier
                 
                 # Process execution frequency analysis
                 if execution_count > behavioral_threshold:
@@ -760,7 +792,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             if rcf_behavioral_baselines and "file_access_patterns" in rcf_behavioral_baselines:
                 baseline_data = rcf_behavioral_baselines["file_access_patterns"]
                 baseline_mean = baseline_data.get("current_baseline", 0)
-                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                
+                # Apply sensitivity adjustment only if needed
+                if multiplier != 1.0:
+                    behavioral_threshold *= multiplier
                 
                 # File access frequency analysis
                 if access_count > behavioral_threshold:
@@ -810,7 +846,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             if rcf_behavioral_baselines and "network_behavior_patterns" in rcf_behavioral_baselines:
                 baseline_data = rcf_behavioral_baselines["network_behavior_patterns"]
                 baseline_mean = baseline_data.get("current_baseline", 0)
-                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean) * multiplier
+                behavioral_threshold = baseline_data.get("behavioral_threshold", baseline_mean)
+                
+                # Apply sensitivity adjustment only if needed
+                if multiplier != 1.0:
+                    behavioral_threshold *= multiplier
                 
                 # Network connection frequency analysis
                 if connection_count > behavioral_threshold:
