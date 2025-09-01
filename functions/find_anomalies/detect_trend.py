@@ -1,42 +1,216 @@
 """
-Detect trend-based anomalies in Wazuh alerts by analyzing temporal patterns and changes over time
+Identify trend-based anomalies by detecting unusual changes in temporal patterns, escalations 
+and directional shifts in security metrics over time. Use RCF to establish trend baselines.
 """
-from typing import Dict, Any, List
+from typing import Dict, Any
 import structlog
 from datetime import datetime, timedelta
 import statistics
+import os
+import aiohttp
 
 logger = structlog.get_logger()
+
+# Load environment variables for RCF trend detector
+TREND_DETECTOR_INDEX = os.getenv("TREND_DETECTOR_INDEX", "opensearch-ad-plugin-result-alert-trend-*")
+OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "localhost")
+OPENSEARCH_PORT = os.getenv("OPENSEARCH_PORT", "9200")
+OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
+OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "admin")
+OPENSEARCH_USE_SSL = os.getenv("OPENSEARCH_USE_SSL", "false").lower() == "true"
+OPENSEARCH_VERIFY_CERTS = os.getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"
+
+
+async def get_rcf_trend_baselines(timeframe: str) -> Dict[str, Any]:
+    """
+    Retrieve RCF-learned trend baselines from trend detector anomaly results index
+    
+    Args:
+        timeframe: Time range for baseline retrieval
+        
+    Returns:
+        RCF trend baseline data with learned thresholds and trend patterns
+    """
+    try:
+        protocol = "https" if OPENSEARCH_USE_SSL else "http"
+        base_url = f"{protocol}://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}"
+        
+        # Calculate time range for query
+        import re
+        time_match = re.match(r"(\d+)([dhm])", timeframe)
+        if time_match:
+            value, unit = int(time_match.group(1)), time_match.group(2)
+            if unit == 'd':
+                end_time = datetime.now()
+                start_time = end_time - timedelta(days=value)
+            elif unit == 'h':
+                end_time = datetime.now()
+                start_time = end_time - timedelta(hours=value)
+            elif unit == 'm':
+                end_time = datetime.now()
+                start_time = end_time - timedelta(minutes=value)
+            else:
+                end_time = datetime.now()
+                start_time = end_time - timedelta(days=7)
+        else:
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=7)
+        
+        # Query the trend detector anomaly results index
+        url = f"{base_url}/{TREND_DETECTOR_INDEX}/_search"
+        
+        search_query = {
+            "query": {
+                "range": {
+                    "data_end_time": {
+                        "gte": int(start_time.timestamp() * 1000),
+                        "lte": int(end_time.timestamp() * 1000)
+                    }
+                }
+            },
+            "sort": [{"data_end_time": {"order": "desc"}}],
+            "size": 100,
+            "_source": ["detector_id", "feature_data", "anomaly_grade", "anomaly_score", "confidence", "threshold", "data_end_time"]
+        }
+        
+        auth = aiohttp.BasicAuth(OPENSEARCH_USER, OPENSEARCH_PASSWORD)
+        connector = aiohttp.TCPConnector(verify_ssl=OPENSEARCH_VERIFY_CERTS)
+        
+        async with aiohttp.ClientSession(auth=auth, connector=connector) as session:
+            async with session.post(url, json=search_query) as response:
+                if response.status == 200:
+                    results_data = await response.json()
+                    hits = results_data.get("hits", {}).get("hits", [])
+                    
+                    if not hits:
+                        logger.warning("No RCF trend results found", index=TREND_DETECTOR_INDEX)
+                        return {}
+                    
+                    # Extract trend baselines from RCF results
+                    alert_volume_values = []
+                    severity_escalation_values = []
+                    attack_diversity_values = []
+                    temporal_spread_values = []
+                    impact_progression_values = []
+                    anomaly_grades = []
+                    anomaly_scores = []
+                    confidence_scores = []
+                    threshold_values = []
+                    
+                    for hit in hits:
+                        source = hit.get("_source", {})
+                        feature_data = source.get("feature_data", [])
+                        
+                        for feature in feature_data:
+                            feature_name = feature.get("feature_name", "")
+                            feature_value = feature.get("data", 0)
+                            
+                            if feature_name == "alert_volume_trend":
+                                alert_volume_values.append(feature_value)
+                            elif feature_name == "severity_escalation_trend":
+                                severity_escalation_values.append(feature_value)
+                            elif feature_name == "attack_diversity_trend":
+                                attack_diversity_values.append(feature_value)
+                            elif feature_name == "temporal_spread_trend":
+                                temporal_spread_values.append(feature_value)
+                            elif feature_name == "impact_progression_trend":
+                                impact_progression_values.append(feature_value)
+                        
+                        anomaly_grades.append(source.get("anomaly_grade", 0.0))
+                        anomaly_scores.append(source.get("anomaly_score", 0.0))
+                        confidence_scores.append(source.get("confidence", 0.0))
+                        threshold_values.append(source.get("threshold", 0.0))
+                    
+                    # Calculate RCF-enhanced statistical baselines for trends
+                    def calculate_trend_stats(values):
+                        if not values:
+                            return {"mean": 0, "std": 0, "trend_threshold": 0, "escalation_threshold": 0, "rcf_multiplier": 1.0}
+                        
+                        mean_val = statistics.mean(values)
+                        std_val = statistics.stdev(values) if len(values) > 1 else 0
+                        
+                        # Use RCF data to determine dynamic multipliers instead of hard-coded 1.5/2.5
+                        sorted_vals = sorted(values)
+                        p75 = sorted_vals[int(0.75 * len(sorted_vals))] if len(sorted_vals) > 0 else mean_val
+                        p90 = sorted_vals[int(0.90 * len(sorted_vals))] if len(sorted_vals) > 0 else mean_val
+                        
+                        # Dynamic multipliers based on RCF data distribution
+                        trend_multiplier = (p75 - mean_val) / std_val if std_val > 0 else 1.2
+                        escalation_multiplier = (p90 - mean_val) / std_val if std_val > 0 else 2.0
+                        
+                        return {
+                            "mean": mean_val,
+                            "std": std_val,
+                            "trend_threshold": mean_val + (trend_multiplier * std_val),  # RCF-learned trend threshold
+                            "escalation_threshold": mean_val + (escalation_multiplier * std_val),  # RCF-learned escalation threshold
+                            "current_baseline": mean_val,
+                            "rcf_trend_multiplier": trend_multiplier,
+                            "rcf_escalation_multiplier": escalation_multiplier
+                        }
+                    
+                    rcf_trend_baselines = {
+                        "alert_volume_trend": calculate_trend_stats(alert_volume_values),
+                        "severity_escalation_trend": calculate_trend_stats(severity_escalation_values),
+                        "attack_diversity_trend": calculate_trend_stats(attack_diversity_values),
+                        "temporal_spread_trend": calculate_trend_stats(temporal_spread_values),
+                        "impact_progression_trend": calculate_trend_stats(impact_progression_values),
+                        "anomaly_grades": calculate_trend_stats(anomaly_grades),
+                        "anomaly_scores": calculate_trend_stats(anomaly_scores),
+                        "confidence_scores": calculate_trend_stats(confidence_scores),
+                        "threshold_values": calculate_trend_stats(threshold_values),
+                        "results_count": len(hits),
+                        "rcf_enhanced": True,
+                        "index_name": TREND_DETECTOR_INDEX
+                    }
+                    
+                    logger.info("Retrieved RCF trend baselines", 
+                               index=TREND_DETECTOR_INDEX,
+                               results_count=len(hits),
+                               avg_confidence=rcf_trend_baselines["confidence_scores"]["mean"])
+                    
+                    return rcf_trend_baselines
+                else:
+                    logger.error("Failed to query trend detector index", 
+                               status=response.status, index=TREND_DETECTOR_INDEX)
+                    return {}
+                    
+    except Exception as e:
+        logger.error("Failed to retrieve RCF trend baselines", error=str(e))
+        return {}
 
 
 async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Detect trend-based anomalies by analyzing temporal patterns and changes over time
+    Identify trend-based anomalies by detecting unusual changes in temporal patterns, escalations 
+    and directional shifts in security metrics over time using RCF-learned trend baselines.
     
     Args:
         opensearch_client: OpenSearch client instance
         params: Parameters including timeframe, trend_type, metric, baseline
         
     Returns:
-        Trend anomaly results with increasing/decreasing patterns, trend analysis, and predictions
+        RCF-enhanced trend anomaly results with escalation patterns and directional shifts
     """
     try:
         # Extract parameters
         timeframe = params.get("timeframe", "24h")
-        trend_type = params.get("trend_type", "increasing")  # increasing, decreasing, both
-        metric = params.get("metric", "alert_volume")
-        baseline = params.get("baseline", "7d")  # Baseline period for trend comparison
+        trend_type = params.get("trend_type", "both")  # increasing, decreasing, both
+        metric = params.get("metric", "all_trends")  # Use all RCF trend features
+        baseline = params.get("baseline", "7d")  # Baseline period for RCF trend comparison
         sensitivity = params.get("sensitivity", "medium")  # low, medium, high
         limit = params.get("limit", 20)
         
-        logger.info("Detecting trend anomalies", 
+        logger.info("Detecting RCF-enhanced trend anomalies", 
                    timeframe=timeframe,
                    trend_type=trend_type,
                    metric=metric,
                    baseline=baseline,
                    sensitivity=sensitivity)
         
-        # Build base query for trend analysis
+        # Retrieve RCF-learned trend baselines
+        rcf_trend_baselines = await get_rcf_trend_baselines(baseline)
+        
+        # Build RCF-aligned query for trend analysis matching trend detector features
         query = {
             "query": {
                 "bool": {
@@ -45,38 +219,36 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             },
             "size": 0,
             "aggs": {
-                "time_series": {
+                "trend_time_series": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1h",
+                        "interval": "30m",  # Match trend detector 30-minute intervals
                         "order": {"_key": "asc"}
                     },
                     "aggs": {
-                        "host_count": {
-                            "cardinality": {
-                                "field": "agent.name"
+                        "alert_volume_trend": {
+                            "value_count": {
+                                "field": "rule.id"
                             }
                         },
-                        "user_count": {
-                            "cardinality": {
-                                "field": "data.win.eventdata.targetUserName"
+                        "severity_escalation_trend": {
+                            "avg": {
+                                "field": "rule.level"
                             }
                         },
-                        "rule_diversity": {
+                        "attack_diversity_trend": {
                             "cardinality": {
                                 "field": "rule.id"
                             }
                         },
-                        "severity_weighted": {
-                            "sum": {
-                                "field": "rule.level"
+                        "temporal_spread_trend": {
+                            "cardinality": {
+                                "field": "agent.name"
                             }
                         },
-                        "high_severity_count": {
-                            "filter": {
-                                "range": {
-                                    "rule.level": {"gte": 8}
-                                }
+                        "impact_progression_trend": {
+                            "sum": {
+                                "field": "rule.level"
                             }
                         }
                     }
@@ -174,84 +346,188 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         hits = response.get("hits", {})
         total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
         
-        # Process time series data
-        time_series_agg = response.get("aggregations", {}).get("time_series", {})
+        # Process RCF-aligned time series data
+        trend_time_series_agg = response.get("aggregations", {}).get("trend_time_series", {})
         hosts_agg = response.get("aggregations", {}).get("host_trends", {})
         users_agg = response.get("aggregations", {}).get("user_trends", {})
         rules_agg = response.get("aggregations", {}).get("rule_trends", {})
         failed_logins_agg = response.get("aggregations", {}).get("failed_login_trends", {})
         
-        # Set sensitivity thresholds
-        trend_thresholds = {
-            "low": {"slope": 0.1, "variance": 0.3, "correlation": 0.6},
-            "medium": {"slope": 0.05, "variance": 0.2, "correlation": 0.7},
-            "high": {"slope": 0.02, "variance": 0.1, "correlation": 0.8}
-        }
-        threshold = trend_thresholds.get(sensitivity, trend_thresholds["medium"])
+        # Use RCF baselines for trend detection or fall back to minimal static thresholds
+        if rcf_trend_baselines and rcf_trend_baselines.get("results_count", 0) > 0:
+            logger.info("Using RCF-learned trend thresholds",
+                       confidence=rcf_trend_baselines.get("confidence_scores", {}).get("mean", 0),
+                       results_count=rcf_trend_baselines.get("results_count", 0))
+            
+            # Use RCF confidence score to determine sensitivity multiplier instead of hard-coded values
+            rcf_confidence = rcf_trend_baselines.get("confidence_scores", {}).get("mean", 0.5)
+            
+            # Dynamic sensitivity based on RCF confidence and anomaly grade patterns
+            rcf_anomaly_grade_mean = rcf_trend_baselines.get("anomaly_grades", {}).get("mean", 0.1)
+            
+            # Adjust sensitivity based on historical anomaly grades
+            grade_adjustment = max(0.5, 1.0 - rcf_anomaly_grade_mean * 0.5)  # Lower grades = higher sensitivity
+            
+            sensitivity_multipliers = {
+                "low": max(0.8, (1.0 - rcf_confidence * 0.3) * grade_adjustment),      # Less sensitive when RCF is confident
+                "medium": max(0.6, (1.0 - rcf_confidence * 0.5) * grade_adjustment),    # Standard RCF-based sensitivity  
+                "high": max(0.4, (1.0 - rcf_confidence * 0.7) * grade_adjustment)       # More sensitive when RCF is confident
+            }
+            multiplier = sensitivity_multipliers.get(sensitivity, 0.7)
+            
+            # Use RCF threshold values instead of arbitrary slopes
+            rcf_threshold_mean = rcf_trend_baselines.get("threshold_values", {}).get("mean", 1.0)
+            
+        else:
+            # Minimal fallback - rely on basic statistical analysis only
+            logger.info("No RCF data available - using minimal statistical thresholds")
+            multiplier = 1.0
+            rcf_threshold_mean = 1.0
         
-        # Analyze overall alert volume trends
-        alert_volume_trend = []
+        # Analyze RCF-aligned trend features
+        trend_time_series = []
         time_points = []
-        alert_counts = []
+        alert_volume_values = []
+        severity_escalation_values = []
+        attack_diversity_values = []
+        temporal_spread_values = []
+        impact_progression_values = []
         
-        for i, bucket in enumerate(time_series_agg.get("buckets", [])):
+        for i, bucket in enumerate(trend_time_series_agg.get("buckets", [])):
             timestamp = bucket["key_as_string"]
-            count = bucket["doc_count"]
-            host_count = bucket.get("host_count", {}).get("value", 0)
-            user_count = bucket.get("user_count", {}).get("value", 0)
-            rule_diversity = bucket.get("rule_diversity", {}).get("value", 0)
-            severity_weighted = bucket.get("severity_weighted", {}).get("value", 0)
-            high_severity = bucket.get("high_severity_count", {}).get("doc_count", 0)
+            
+            # Extract RCF trend feature values
+            alert_volume = bucket.get("alert_volume_trend", {}).get("value", 0)
+            severity_escalation = bucket.get("severity_escalation_trend", {}).get("value", 0)
+            attack_diversity = bucket.get("attack_diversity_trend", {}).get("value", 0)
+            temporal_spread = bucket.get("temporal_spread_trend", {}).get("value", 0)
+            impact_progression = bucket.get("impact_progression_trend", {}).get("value", 0)
             
             time_points.append(i)
-            alert_counts.append(count)
+            alert_volume_values.append(alert_volume)
+            severity_escalation_values.append(severity_escalation)
+            attack_diversity_values.append(attack_diversity)
+            temporal_spread_values.append(temporal_spread)
+            impact_progression_values.append(impact_progression)
             
-            alert_volume_trend.append({
+            trend_time_series.append({
                 "timestamp": timestamp,
-                "alert_count": count,
-                "host_count": host_count,
-                "user_count": user_count,
-                "rule_diversity": rule_diversity,
-                "severity_weighted": severity_weighted,
-                "high_severity_count": high_severity
+                "alert_volume_trend": alert_volume,
+                "severity_escalation_trend": severity_escalation,
+                "attack_diversity_trend": attack_diversity,
+                "temporal_spread_trend": temporal_spread,
+                "impact_progression_trend": impact_progression
             })
         
-        # Calculate trend statistics for overall volume
+        # Calculate RCF-enhanced trend analysis
         overall_trends = {}
+        trend_anomalies = []
+        
         if len(time_points) >= 3:
-            # Calculate linear regression slope
-            n = len(time_points)
-            sum_x = sum(time_points)
-            sum_y = sum(alert_counts)
-            sum_xy = sum(x * y for x, y in zip(time_points, alert_counts))
-            sum_x2 = sum(x * x for x in time_points)
+            # Analyze each RCF trend feature
+            trend_features = {
+                "alert_volume_trend": alert_volume_values,
+                "severity_escalation_trend": severity_escalation_values, 
+                "attack_diversity_trend": attack_diversity_values,
+                "temporal_spread_trend": temporal_spread_values,
+                "impact_progression_trend": impact_progression_values
+            }
             
-            if n * sum_x2 - sum_x * sum_x != 0:
-                slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
+            for feature_name, feature_values in trend_features.items():
+                if not feature_values or all(v == 0 for v in feature_values):
+                    continue
                 
-                # Calculate correlation coefficient
-                mean_x = statistics.mean(time_points)
-                mean_y = statistics.mean(alert_counts)
-                
-                numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(time_points, alert_counts))
-                denom_x = sum((x - mean_x) ** 2 for x in time_points)
-                denom_y = sum((y - mean_y) ** 2 for y in alert_counts)
-                
-                correlation = numerator / (denom_x * denom_y) ** 0.5 if denom_x * denom_y > 0 else 0
-                
-                # Calculate variance
-                variance = statistics.variance(alert_counts) if len(alert_counts) > 1 else 0
-                variance_coefficient = (variance ** 0.5) / mean_y if mean_y > 0 else 0
-                
-                overall_trends = {
-                    "slope": round(slope, 4),
-                    "correlation": round(correlation, 3),
-                    "variance_coefficient": round(variance_coefficient, 3),
-                    "mean_alerts_per_hour": round(mean_y, 2),
-                    "trend_direction": "increasing" if slope > threshold["slope"] else "decreasing" if slope < -threshold["slope"] else "stable",
-                    "trend_strength": "strong" if abs(correlation) > threshold["correlation"] else "moderate" if abs(correlation) > 0.5 else "weak",
-                    "volatility": "high" if variance_coefficient > threshold["variance"] else "medium" if variance_coefficient > 0.1 else "low"
-                }
+                try:
+                    # Calculate linear regression slope for trend detection
+                    slope = statistics.linear_regression(time_points, feature_values).slope
+                    correlation = statistics.correlation(time_points, feature_values) if len(feature_values) > 1 else 0
+                    mean_value = statistics.mean(feature_values)
+                    
+                    # RCF-enhanced anomaly detection using learned baselines
+                    if rcf_trend_baselines and feature_name in rcf_trend_baselines:
+                        rcf_baseline = rcf_trend_baselines[feature_name]
+                        baseline_mean = rcf_baseline.get("current_baseline", mean_value)
+                        
+                        # Use RCF-learned thresholds directly (already calculated with proper multipliers)
+                        trend_threshold = rcf_baseline.get("trend_threshold", baseline_mean)
+                        escalation_threshold = rcf_baseline.get("escalation_threshold", baseline_mean)
+                        
+                        # Apply sensitivity adjustment only if needed
+                        if multiplier != 1.0:
+                            trend_threshold *= multiplier
+                            escalation_threshold *= multiplier
+                        
+                        # Detect trend anomalies using RCF thresholds
+                        current_deviation = abs(mean_value - baseline_mean)
+                        is_trend_anomaly = current_deviation > trend_threshold
+                        is_escalation = current_deviation > escalation_threshold
+                        
+                        # Check for directional shifts
+                        trend_direction = "increasing" if slope > 0 else "decreasing" if slope < 0 else "stable"
+                        
+                        if is_trend_anomaly or is_escalation:
+                            anomaly_score = min(100, (current_deviation / baseline_mean * 100) if baseline_mean > 0 else 50)
+                            
+                            trend_anomalies.append({
+                                "feature": feature_name,
+                                "anomaly_type": "escalation" if is_escalation else "trend_shift",
+                                "current_value": round(mean_value, 2),
+                                "baseline_value": round(baseline_mean, 2),
+                                "deviation": round(current_deviation, 2),
+                                "trend_direction": trend_direction,
+                                "slope": round(slope, 4),
+                                "correlation": round(correlation, 3),
+                                "anomaly_score": round(anomaly_score, 2),
+                                "rcf_enhanced": True,
+                                "risk_level": "Critical" if is_escalation else "High" if anomaly_score > 70 else "Medium"
+                            })
+                            
+                    else:
+                        # Fallback to basic statistical analysis without hard-coded thresholds
+                        # Use standard deviation to identify significant trends
+                        if len(feature_values) > 2:
+                            std_dev = statistics.stdev(feature_values)
+                            trend_significance = abs(slope) * len(feature_values)  # Slope magnitude * data points
+                            
+                            # Use statistical significance instead of arbitrary thresholds
+                            is_significant_trend = trend_significance > std_dev
+                            
+                            if is_significant_trend:
+                                # Calculate anomaly score based on statistical significance
+                                anomaly_score = min(100, (trend_significance / std_dev) * 20) if std_dev > 0 else 30
+                                
+                                trend_anomalies.append({
+                                    "feature": feature_name,
+                                    "anomaly_type": "trend_shift",
+                                    "current_value": round(mean_value, 2),
+                                    "trend_direction": "increasing" if slope > 0 else "decreasing",
+                                    "slope": round(slope, 4),
+                                    "correlation": round(correlation, 3),
+                                    "anomaly_score": round(anomaly_score, 2),
+                                    "statistical_significance": round(trend_significance, 2),
+                                    "rcf_enhanced": False,
+                                    "risk_level": "Medium"
+                                })
+                                
+                except (ValueError, statistics.StatisticsError):
+                    continue  # Skip if statistical calculation fails
+            
+            # Build overall trends summary
+            if alert_volume_values:
+                try:
+                    alert_slope = statistics.linear_regression(time_points, alert_volume_values).slope
+                    mean_alerts = statistics.mean(alert_volume_values)
+                    
+                    overall_trends = {
+                        "primary_trend": "alert_volume_escalation" if alert_slope > 0 else "alert_volume_decline" if alert_slope < 0 else "stable",
+                        "trend_slope": round(alert_slope, 4),
+                        "mean_alert_volume": round(mean_alerts, 2),
+                        "rcf_enhanced": bool(rcf_trend_baselines),
+                        "total_trend_anomalies": len(trend_anomalies),
+                        "confidence_score": rcf_trend_baselines.get("confidence_scores", {}).get("mean", 0) if rcf_trend_baselines else 0
+                    }
+                except (ValueError, statistics.StatisticsError):
+                    overall_trends = {"error": "Insufficient data for trend analysis"}
         
         # Analyze host-specific trends
         host_trend_anomalies = []
@@ -286,22 +562,45 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 if n * sum_x2 - sum_x * sum_x != 0:
                     host_slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
                     
-                    # Check for trend anomalies
+                    # Check for trend anomalies using RCF-learned thresholds
                     is_anomaly = False
                     anomaly_reasons = []
                     
-                    if trend_type in ["increasing", "both"] and host_slope > threshold["slope"] * 2:
+                    # Use RCF-derived trend threshold instead of arbitrary slope calculations
+                    if rcf_trend_baselines and rcf_trend_baselines.get("alert_volume_trend"):
+                        # Use the actual RCF-learned trend threshold for slope comparison
+                        baseline_data = rcf_trend_baselines["alert_volume_trend"]
+                        slope_threshold = baseline_data.get("trend_threshold", baseline_data.get("std", 1.0))
+                    else:
+                        # Statistical fallback based on host data distribution
+                        if len(host_alert_counts) > 1:
+                            host_std = statistics.stdev(host_alert_counts)
+                            slope_threshold = host_std / len(host_alert_counts) if len(host_alert_counts) > 0 else 0.1
+                        else:
+                            slope_threshold = 0.1
+                    
+                    if trend_type in ["increasing", "both"] and host_slope > slope_threshold:
                         is_anomaly = True
                         anomaly_reasons.append(f"Rapidly increasing alert trend (slope: {host_slope:.3f})")
                     
-                    if trend_type in ["decreasing", "both"] and host_slope < -threshold["slope"] * 2:
+                    if trend_type in ["decreasing", "both"] and host_slope < -slope_threshold:
                         is_anomaly = True
                         anomaly_reasons.append(f"Rapidly decreasing alert trend (slope: {host_slope:.3f})")
                     
-                    # Check severity trend
+                    # Check severity trend using RCF-learned escalation patterns
                     if len(host_severity_trend) >= 3:
                         severity_slope = statistics.linear_regression(range(len(host_severity_trend)), host_severity_trend).slope
-                        if severity_slope > 0.5:
+                        
+                        # Use RCF-derived severity escalation threshold directly
+                        if rcf_trend_baselines and rcf_trend_baselines.get("severity_escalation_trend"):
+                            severity_baseline = rcf_trend_baselines["severity_escalation_trend"]
+                            severity_threshold = severity_baseline.get("escalation_threshold", severity_baseline.get("std", 1.0))
+                        else:
+                            # Statistical fallback based on severity data
+                            severity_std = statistics.stdev(host_severity_trend) if len(host_severity_trend) > 1 else 1.0
+                            severity_threshold = severity_std * 0.5
+                        
+                        if severity_slope > severity_threshold:
                             is_anomaly = True
                             anomaly_reasons.append(f"Increasing severity trend (slope: {severity_slope:.3f})")
                     
@@ -314,7 +613,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                             "anomaly_score": min(100, abs(host_slope) * 1000),
                             "anomaly_reasons": anomaly_reasons,
                             "time_series": [{"period": i, "count": count} for i, count in enumerate(host_alert_counts)],
-                            "risk_level": "High" if abs(host_slope) > threshold["slope"] * 5 else "Medium"
+                            "risk_level": "High" if abs(host_slope) > slope_threshold * multiplier else "Medium"
                         })
         
         # Analyze user activity trends
@@ -339,8 +638,19 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 try:
                     slope = statistics.linear_regression(user_time_points, user_activity_counts).slope
                     
-                    # Check for significant trends
-                    if abs(slope) > threshold["slope"]:
+                    # Check for significant trends using RCF-learned baselines
+                    if rcf_trend_baselines and rcf_trend_baselines.get("temporal_spread_trend"):
+                        temporal_baseline = rcf_trend_baselines["temporal_spread_trend"]
+                        user_slope_threshold = temporal_baseline.get("trend_threshold", temporal_baseline.get("std", 1.0))
+                    else:
+                        # Statistical fallback for user activity trends
+                        if len(user_activity_counts) > 1:
+                            user_std = statistics.stdev(user_activity_counts)
+                            user_slope_threshold = user_std / len(user_activity_counts) if len(user_activity_counts) > 0 else 0.05
+                        else:
+                            user_slope_threshold = 0.05
+                    
+                    if abs(slope) > user_slope_threshold:
                         user_trend_anomalies.append({
                             "user": user,
                             "total_activity": total_activity,
@@ -349,9 +659,9 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                             "anomaly_score": min(100, abs(slope) * 500),
                             "anomaly_reason": f"{'Increasing' if slope > 0 else 'Decreasing'} user activity trend",
                             "time_series": [{"period": i, "count": count} for i, count in enumerate(user_activity_counts)],
-                            "risk_level": "Medium" if abs(slope) > threshold["slope"] * 2 else "Low"
+                            "risk_level": "Medium" if abs(slope) > user_slope_threshold * multiplier else "Low"
                         })
-                except:
+                except (ValueError, statistics.StatisticsError, ZeroDivisionError):
                     continue  # Skip if regression fails
         
         # Analyze rule firing trends
@@ -382,8 +692,19 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 try:
                     slope = statistics.linear_regression(rule_time_points, rule_fire_counts).slope
                     
-                    # Check for significant trends
-                    if abs(slope) > threshold["slope"] * 1.5:
+                    # Check for significant trends using RCF-learned attack diversity patterns
+                    if rcf_trend_baselines and rcf_trend_baselines.get("attack_diversity_trend"):
+                        diversity_baseline = rcf_trend_baselines["attack_diversity_trend"]
+                        rule_slope_threshold = diversity_baseline.get("trend_threshold", diversity_baseline.get("std", 1.0))
+                    else:
+                        # Statistical fallback for rule firing trends
+                        if len(rule_fire_counts) > 1:
+                            rule_std = statistics.stdev(rule_fire_counts)
+                            rule_slope_threshold = rule_std / len(rule_fire_counts) if len(rule_fire_counts) > 0 else 0.1
+                        else:
+                            rule_slope_threshold = 0.1
+                    
+                    if abs(slope) > rule_slope_threshold:
                         rule_trend_anomalies.append({
                             "rule_id": rule_id,
                             "rule_description": rule_description,
@@ -393,9 +714,9 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                             "anomaly_score": min(100, abs(slope) * 300),
                             "anomaly_reason": f"{'Increasing' if slope > 0 else 'Decreasing'} rule firing trend",
                             "time_series": [{"period": i, "count": count} for i, count in enumerate(rule_fire_counts)],
-                            "risk_level": "High" if abs(slope) > threshold["slope"] * 3 else "Medium"
+                            "risk_level": "High" if abs(slope) > rule_slope_threshold * multiplier else "Medium"
                         })
-                except:
+                except (ValueError, statistics.StatisticsError, ZeroDivisionError):
                     continue  # Skip if regression fails
         
         # Analyze failed login trends
@@ -419,7 +740,21 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 slope = statistics.linear_regression(failed_login_time_points, failed_login_counts).slope
                 total_failures = sum(failed_login_counts)
                 
-                if abs(slope) > threshold["slope"] and total_failures > 5:
+                # Use RCF-learned thresholds for failed login trend analysis
+                if rcf_trend_baselines and rcf_trend_baselines.get("impact_progression_trend"):
+                    impact_baseline = rcf_trend_baselines["impact_progression_trend"]
+                    failed_login_threshold = impact_baseline.get("trend_threshold", impact_baseline.get("std", 1.0))
+                    min_failures_threshold = max(3, int(rcf_trend_baselines.get("alert_volume_trend", {}).get("mean", 5) * 0.1))
+                else:
+                    # Statistical fallback for failed login trends
+                    if len(failed_login_counts) > 1:
+                        failed_login_std = statistics.stdev(failed_login_counts)
+                        failed_login_threshold = failed_login_std / len(failed_login_counts) if len(failed_login_counts) > 0 else 0.05
+                    else:
+                        failed_login_threshold = 0.05
+                    min_failures_threshold = 3
+                
+                if abs(slope) > failed_login_threshold and total_failures > min_failures_threshold:
                     failed_login_anomaly = {
                         "trend_slope": round(slope, 4),
                         "trend_direction": "increasing" if slope > 0 else "decreasing",
@@ -427,9 +762,9 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "anomaly_score": min(100, abs(slope) * 400),
                         "anomaly_reason": f"{'Increasing' if slope > 0 else 'Decreasing'} failed login trend",
                         "time_series": failed_login_trends,
-                        "risk_level": "Critical" if slope > threshold["slope"] * 3 else "High"
+                        "risk_level": "Critical" if slope > failed_login_threshold * multiplier else "High"
                     }
-            except:
+            except (ValueError, statistics.StatisticsError, ZeroDivisionError):
                 pass  # Skip if regression fails
         
         # Sort anomalies by score
@@ -437,40 +772,54 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         user_trend_anomalies.sort(key=lambda x: x["anomaly_score"], reverse=True)
         rule_trend_anomalies.sort(key=lambda x: x["anomaly_score"], reverse=True)
         
-        # Build result
+        # Build RCF-enhanced result
         result = {
             "total_alerts": total_alerts,
             "analysis_period": timeframe,
+            "rcf_detector_info": {
+                "index_name": TREND_DETECTOR_INDEX,
+                "rcf_baselines_used": bool(rcf_trend_baselines),
+                "baseline_period": baseline,
+                "baseline_results_count": rcf_trend_baselines.get("results_count", 0) if rcf_trend_baselines else 0,
+                "confidence_score": rcf_trend_baselines.get("confidence_scores", {}).get("mean", 0) if rcf_trend_baselines else 0
+            },
             "trend_settings": {
                 "trend_type": trend_type,
                 "sensitivity": sensitivity,
-                "thresholds": threshold
+                "sensitivity_multiplier": multiplier if rcf_trend_baselines else "static_thresholds"
             },
             "overall_trends": overall_trends,
-            "alert_volume_timeline": alert_volume_trend,
-            "trend_analysis": {
-                "host_trend_anomalies": host_trend_anomalies[:limit],
-                "user_trend_anomalies": user_trend_anomalies[:limit],
-                "rule_trend_anomalies": rule_trend_anomalies[:limit],
-                "failed_login_trend": failed_login_anomaly
+            "trend_time_series": trend_time_series,
+            "rcf_trend_analysis": {
+                "trend_anomalies": trend_anomalies[:limit],
+                "escalation_patterns": [a for a in trend_anomalies if a.get("anomaly_type") == "escalation"],
+                "directional_shifts": [a for a in trend_anomalies if a.get("anomaly_type") == "trend_shift"]
             },
+            "rcf_baselines": rcf_trend_baselines if rcf_trend_baselines else {},
+            "host_trend_anomalies": host_trend_anomalies[:limit],
+            "user_trend_anomalies": user_trend_anomalies[:limit],
+            "rule_trend_anomalies": rule_trend_anomalies[:limit],
+            "failed_login_anomaly": failed_login_anomaly,
             "summary": {
-                "total_trend_anomalies": len(host_trend_anomalies) + len(user_trend_anomalies) + len(rule_trend_anomalies),
-                "hosts_with_trends": len(host_trend_anomalies),
-                "users_with_trends": len(user_trend_anomalies),
-                "rules_with_trends": len(rule_trend_anomalies),
-                "overall_trend_direction": overall_trends.get("trend_direction", "stable"),
-                "overall_trend_strength": overall_trends.get("trend_strength", "weak"),
-                "highest_anomaly_score": max([a["anomaly_score"] for a in host_trend_anomalies + user_trend_anomalies + rule_trend_anomalies]) if (host_trend_anomalies or user_trend_anomalies or rule_trend_anomalies) else 0,
-                "critical_trends": len([a for a in host_trend_anomalies + user_trend_anomalies + rule_trend_anomalies if a.get("risk_level") == "Critical"]),
-                "risk_assessment": "Critical" if failed_login_anomaly and failed_login_anomaly.get("risk_level") == "Critical" else "High" if host_trend_anomalies or user_trend_anomalies or rule_trend_anomalies else "Low"
+                "total_trend_anomalies": len(trend_anomalies),
+                "escalation_anomalies": len([a for a in trend_anomalies if a.get("anomaly_type") == "escalation"]),
+                "directional_shift_anomalies": len([a for a in trend_anomalies if a.get("anomaly_type") == "trend_shift"]),
+                "primary_trend_direction": overall_trends.get("primary_trend", "stable"),
+                "highest_anomaly_score": max([a["anomaly_score"] for a in trend_anomalies]) if trend_anomalies else 0,
+                "critical_trends": len([a for a in trend_anomalies if a.get("risk_level") == "Critical"]),
+                "high_risk_trends": len([a for a in trend_anomalies if a.get("risk_level") == "High"]),
+                "rcf_enhanced_detections": len([a for a in trend_anomalies if a.get("rcf_enhanced", False)]),
+                "risk_assessment": "Critical" if any(a.get("risk_level") == "Critical" for a in trend_anomalies) else "High" if any(a.get("risk_level") == "High" for a in trend_anomalies) else "Medium" if trend_anomalies else "Low"
             }
         }
         
-        logger.info("Trend anomaly detection completed", 
+        logger.info("RCF-enhanced trend anomaly detection completed", 
                    total_alerts=total_alerts,
                    trend_anomalies=result["summary"]["total_trend_anomalies"],
-                   overall_trend=result["summary"]["overall_trend_direction"])
+                   escalation_patterns=result["summary"]["escalation_anomalies"],
+                   directional_shifts=result["summary"]["directional_shift_anomalies"],
+                   rcf_enhanced=result["summary"]["rcf_enhanced_detections"],
+                   primary_trend=result["summary"]["primary_trend_direction"])
         
         return result
         
