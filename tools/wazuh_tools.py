@@ -313,7 +313,7 @@ class DetectThreatsTool(WazuhBaseTool):
 class FindAnomaliesTool(WazuhBaseTool):
     """Tool for finding anomalies in security data using various detection methods"""
     name: str = "find_anomalies"
-    description: str = "Detect security anomalies using different analysis types: 'threshold' (entities exceeding limits), 'pattern' (unusual temporal/behavioral patterns), 'behavioral' (deviations from historical baselines), 'trend' (increasing/decreasing patterns over time)"
+    description: str = "Detect security anomalies using different analysis types: 'threshold' (entities exceeding user-defined limits - threshold parameter required), 'behavioral' (deviations from RCF-learned baselines), 'trend' (RCF-enhanced trend analysis over time). RCF-based detectors (behavioral/trend) use machine-learned thresholds from OpenSearch and do not require threshold parameters."
     args_schema: Type[FindAnomaliesSchema] = FindAnomaliesSchema
     
     def _run(
@@ -344,9 +344,13 @@ class FindAnomaliesTool(WazuhBaseTool):
             params = {
                 "metric": metric,
                 "timeframe": timeframe,
-                "threshold": threshold,
                 "baseline": baseline
             }
+            
+            # Only include threshold parameter for threshold-based detection
+            anomaly_type_lower = anomaly_type.lower()
+            if anomaly_type_lower in ["threshold", "thresholds"]:
+                params["threshold"] = threshold
             
             # Remove None values
             params = {k: v for k, v in params.items() if v is not None}
@@ -363,9 +367,6 @@ class FindAnomaliesTool(WazuhBaseTool):
                 from functions.find_anomalies.detect_threshold import execute
                 result = await execute(self.opensearch_client, params)
                 
-            elif anomaly_type_lower in ["pattern", "patterns", "temporal", "time_pattern", "time_patterns"]:
-                from old.detect_pattern import execute
-                result = await execute(self.opensearch_client, params)
                 
             elif anomaly_type_lower in ["behavioral", "behaviour", "behavior", "user_behavior", "host_behavior", "baseline", "baseline_comparison"]:
                 from functions.find_anomalies.detect_behavioral import execute

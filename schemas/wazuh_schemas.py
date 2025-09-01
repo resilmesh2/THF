@@ -43,7 +43,6 @@ class ThreatType(str, Enum):
 class AnomalyType(str, Enum):
     """Types of anomaly detection"""
     THRESHOLD = "threshold"
-    PATTERN = "pattern"
     BEHAVIORAL = "behavioral"
     TREND = "trend"
 
@@ -112,10 +111,10 @@ class DetectThreatsSchema(BaseModel):
 
 class FindAnomaliesSchema(BaseModel):
     """Schema for find_anomalies function"""
-    anomaly_type: AnomalyType = Field(description="Type of anomaly detection: 'threshold' (entities exceeding limits), 'pattern' (unusual time/activity patterns), 'behavioral' (deviations from baselines), 'trend' (increasing/decreasing over time), or 'all' for comprehensive analysis")
+    anomaly_type: AnomalyType = Field(description="Type of anomaly detection: 'threshold' (entities exceeding user-defined limits), 'behavioral' (deviations from RCF-learned baselines), 'trend' (RCF-enhanced trend analysis over time)")
     metric: Optional[str] = Field(default=None, description="Specific metric to analyze (e.g., 'alert_count', 'severity')")
     timeframe: Optional[str] = Field(default="24h", description="Time frame for anomaly detection (e.g., '24h', '7d')")
-    threshold: Optional[float] = Field(default=None, description="Threshold value for anomaly detection")
+    threshold: Optional[float] = Field(default=None, description="Threshold value for anomaly detection (REQUIRED only for 'threshold' type, NOT used for 'behavioral' or 'trend' types which use RCF-learned baselines)")
     baseline: Optional[str] = Field(default=None, description="Baseline period for comparison (e.g., '7d', '30d')")
 
 
