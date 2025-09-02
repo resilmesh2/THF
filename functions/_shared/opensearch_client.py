@@ -397,7 +397,32 @@ class WazuhOpenSearchClient:
             elif field in ["rule_id", "rule", "ruleid"] and isinstance(value, str):
                 query_filters.append({"term": {"rule.id": value}})
             elif field in ["rule_level", "severity", "level"] and isinstance(value, (str, int)):
-                query_filters.append({"term": {"rule.level": int(value)}})
+                # Convert severity names to numeric levels
+                if isinstance(value, str):
+                    severity_mapping = {
+                        "critical": 12,
+                        "high": 8, 
+                        "medium": 5,
+                        "low": 3,
+                        "informational": 1,
+                        "info": 1
+                    }
+                    if value.lower() in severity_mapping:
+                        level_value = severity_mapping[value.lower()]
+                    else:
+                        try:
+                            level_value = int(value)
+                        except ValueError:
+                            # Skip invalid severity values
+                            continue
+                else:
+                    level_value = int(value)
+                
+                # For named severities, use range queries to include all levels at or above the threshold
+                if isinstance(value, str) and value.lower() in ["critical", "high", "medium", "low"]:
+                    query_filters.append({"range": {"rule.level": {"gte": level_value}}})
+                else:
+                    query_filters.append({"term": {"rule.level": level_value}})
             elif field in ["rule_group", "rule_groups", "group", "groups"] and isinstance(value, str):
                 query_filters.append({"term": {"rule.groups": value}})
             # Standard filtering logic for other fields
