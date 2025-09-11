@@ -36,7 +36,7 @@ logger = structlog.get_logger()
 # Initialize FastAPI app
 app = FastAPI(
     title="Wazuh LLM Security Assistant",
-    description="Natural language interface for Wazuh SIEM using LangChain and OpenAI",
+    description="Natural language interface for Wazuh SIEM using LangChain and Anthropic Claude",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"

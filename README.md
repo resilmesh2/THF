@@ -1,6 +1,6 @@
 # Wazuh LLM Assistant
 
-A natural language interface for Wazuh SIEM using LangChain and OpenAI function calling.
+A natural language interface for Wazuh SIEM using LangChain and Anthropic Claude function calling.
 
 ## Overview
 

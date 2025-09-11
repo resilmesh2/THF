@@ -9,7 +9,7 @@ The system follows the flow: **User Query → LLM Function Calling → Function 
 ### Core LLM Framework
 - **LangChain** - Primary framework for agent orchestration and tool integration
 - **LangSmith** - Observability and tracing for debugging and monitoring
-- **OpenAI API** - LLM for function calling and response generation
+- **Anthropic Claude API** - LLM for function calling and response generation
 
 ### Backend Integration
 - **OpenSearch Python Client** - Direct integration with Wazuh's OpenSearch backend
@@ -81,7 +81,7 @@ The system follows the flow: **User Query → LLM Function Calling → Function 
 # requirements.txt
 langchain>=0.1.0
 langsmith>=0.1.0
-openai>=1.0.0
+anthropic>=0.17.0
 opensearch-py>=2.4.0
 fastapi>=0.104.0
 pydantic>=2.0.0
@@ -567,7 +567,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
 from langchain.agents import initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
 from langchain.callbacks import LangChainTracer
-from langchain.chat_models import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from tools.wazuh_tools import *
 from _shared.opensearch_client import WazuhOpenSearchClient
 import structlog
@@ -575,15 +575,15 @@ import structlog
 logger = structlog.get_logger()
 
 class WazuhSecurityAgent:
-    def __init__(self, openai_api_key: str, opensearch_config: Dict[str, Any]):
+    def __init__(self, anthropic_api_key: str, opensearch_config: Dict[str, Any]):
         # Initialize OpenSearch client
         self.opensearch_client = WazuhOpenSearchClient(**opensearch_config)
         
         # Initialize LLM
-        self.llm = ChatOpenAI(
-            model="gpt-4",
+        self.llm = ChatAnthropic(
+            model="claude-3-5-sonnet-20241022",
             temperature=0.1,
-            openai_api_key=openai_api_key
+            anthropic_api_key=anthropic_api_key
         )
         
         # Initialize tools
@@ -609,7 +609,7 @@ class WazuhSecurityAgent:
         self.agent = initialize_agent(
             tools=self.tools,
             llm=self.llm,
-            agent=AgentType.OPENAI_FUNCTIONS,
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
             max_iterations=3,
@@ -697,7 +697,7 @@ app.add_middleware(
 
 # Initialize agent
 agent = WazuhSecurityAgent(
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
     opensearch_config={
         "host": os.getenv("OPENSEARCH_HOST", "localhost"),
         "port": int(os.getenv("OPENSEARCH_PORT", "9200")),
@@ -759,7 +759,7 @@ example_queries = [
 
 # Usage example
 agent = WazuhSecurityAgent(
-    openai_api_key="your-api-key",
+    anthropic_api_key="your-anthropic-api-key",
     opensearch_config={
         "host": "your-opensearch-host",
         "port": 9200,
