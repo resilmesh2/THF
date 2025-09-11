@@ -370,7 +370,7 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
             # Auto-detect agent ID format
             if agent_id.isdigit():
                 query["query"]["bool"]["must"].append({
-                    "term": {"agent.id": int(agent_id)}
+                    "term": {"agent.id": agent_id}
                 })
             elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', agent_id):
                 query["query"]["bool"]["must"].append({

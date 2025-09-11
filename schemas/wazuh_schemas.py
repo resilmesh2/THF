@@ -123,8 +123,8 @@ class TraceTimelineSchema(BaseModel):
     start_time: Optional[str] = Field(default=None, description="Start time for timeline (optional, defaults to 7 days ago for progression analysis)")
     end_time: Optional[str] = Field(default=None, description="End time for timeline (optional, defaults to now for progression analysis)")
     entity: Optional[str] = Field(default=None, description="Entity to focus timeline on")
-    view_type: ViewType = Field(description="Type of timeline view: 'sequence', 'progression', or 'temporal'")
-    event_types: Optional[List[str]] = Field(default=None, description="Types of events to include")
+    view_type: ViewType = Field(default=ViewType.PROGRESSION, description="Type of timeline view: 'sequence', 'progression', or 'temporal'")
+    event_types: Optional[List[str]] = Field(default=None, description="Keywords describing event types to include (e.g., 'logon', 'process', 'file', 'network', 'malware') - these are mapped to actual rule groups dynamically")
 
 
 class CheckVulnerabilitiesSchema(BaseModel):

@@ -53,8 +53,13 @@ class WazuhSecurityAgent:
         
         # Initialize callbacks
         callbacks = []
-        if os.getenv("LANGCHAIN_TRACING_V2") == "true":
-            callbacks.append(LangChainTracer())
+        # Only enable LangSmith tracing if properly configured
+        try:
+            if os.getenv("LANGCHAIN_TRACING_V2") == "true" and os.getenv("LANGCHAIN_API_KEY"):
+                callbacks.append(LangChainTracer())
+                logger.info("LangSmith tracing enabled")
+        except Exception as e:
+            logger.warning("Failed to initialize LangSmith tracing", error=str(e))
         
         # Initialize agent
         self.agent = initialize_agent(
@@ -63,10 +68,10 @@ class WazuhSecurityAgent:
             agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
-            max_iterations=3,
-            early_stopping_method="generate",
+            max_iterations=5,  # Increase iterations
+            early_stopping_method="force",  # Change to force
             callbacks=callbacks,
-            handle_parsing_errors=True
+            handle_parsing_errors="Check your output and make sure it conforms to the expected format! Continue with the task."
         )
         
         # System prompt for security context

@@ -57,7 +57,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         ]}},
                         # Authentication failures and escalations
                         {"bool": {"must": [
-                            {"terms": {"rule.groups": ["authentication", "pam", "ssh"]}},
+                            {"terms": {"rule.groups": ["authentication", "pam", "ssh", "windows_security", "authentication_success", "authentication_failed"]}},
                             {"range": {"rule.level": {"gte": 5}}}
                         ]}}
                     ],
@@ -175,15 +175,60 @@ def _build_time_range_filter(start_time: str, end_time: str) -> Dict[str, Any]:
 def _parse_time_to_datetime(time_str: str) -> str:
     """Parse time string to full datetime string"""
     import re
-    from datetime import datetime, date
+    from datetime import datetime, date, timedelta
     
     # If it's already a full datetime, return as-is
-    if 'T' in time_str or len(time_str) > 10:
+    if 'T' in time_str:
         return time_str
     
-    # Handle time-only format (HH:MM:SS)
-    time_pattern = r'^\d{2}:\d{2}:\d{2}$'
+    # Handle datetime format without T (YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM)
+    datetime_pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$'
+    if re.match(datetime_pattern, time_str):
+        if len(time_str.split(' ')[1].split(':')) == 2:
+            # Add seconds if not provided
+            return f"{time_str}:00"
+        return time_str
+    
+    # Handle relative date terms with time
+    if time_str.startswith('yesterday '):
+        time_part = time_str.replace('yesterday ', '')
+        time_pattern = r'^\d{2}:\d{2}(:\d{2})?$'
+        if re.match(time_pattern, time_part):
+            if len(time_part.split(':')) == 2:
+                time_part += ':00'
+            yesterday = date.today() - timedelta(days=1)
+            return f"{yesterday.isoformat()}T{time_part}"
+    
+    if time_str.startswith('today '):
+        time_part = time_str.replace('today ', '')
+        time_pattern = r'^\d{2}:\d{2}(:\d{2})?$'
+        if re.match(time_pattern, time_part):
+            if len(time_part.split(':')) == 2:
+                time_part += ':00'
+            today = date.today()
+            return f"{today.isoformat()}T{time_part}"
+    
+    # Handle "X days ago" format
+    days_ago_pattern = r'^(\d+) days? ago$'
+    match = re.match(days_ago_pattern, time_str)
+    if match:
+        days = int(match.group(1))
+        target_date = date.today() - timedelta(days=days)
+        return f"{target_date.isoformat()}T00:00:00"
+    
+    # Handle "a week ago", "2 weeks ago"
+    weeks_ago_pattern = r'^(?:a|(\d+)) weeks? ago$'
+    match = re.match(weeks_ago_pattern, time_str)
+    if match:
+        weeks = 1 if match.group(1) is None else int(match.group(1))
+        target_date = date.today() - timedelta(weeks=weeks)
+        return f"{target_date.isoformat()}T00:00:00"
+    
+    # Handle time-only format (HH:MM:SS or HH:MM)
+    time_pattern = r'^\d{2}:\d{2}(:\d{2})?$'
     if re.match(time_pattern, time_str):
+        if len(time_str.split(':')) == 2:
+            time_str += ':00'
         # Use today's date with the specified time
         today = date.today()
         return f"{today.isoformat()}T{time_str}"
@@ -224,7 +269,7 @@ def _build_entity_filter(entity: str) -> Optional[Dict[str, Any]]:
         }
     elif entity.isdigit():
         # Agent ID
-        return {"term": {"agent.id": int(entity)}}
+        return {"term": {"agent.id": entity}}
     else:
         # Hostname or general entity
         return {
@@ -254,7 +299,7 @@ def _build_event_type_filters(event_types: List[str]) -> List[Dict[str, Any]]:
                 "bool": {
                     "should": [
                         {"terms": {"rule.mitre.tactic": ["reconnaissance", "initial-access"]}},
-                        {"terms": {"rule.groups": ["authentication", "ssh", "login"]}}
+                        {"terms": {"rule.groups": ["authentication", "ssh", "login", "windows_security", "authentication_success", "authentication_failed"]}}
                     ]
                 }
             })

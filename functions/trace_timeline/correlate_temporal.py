@@ -6,6 +6,7 @@ import structlog
 from datetime import datetime
 from collections import defaultdict
 import re
+from ._shared.event_type_mapper import build_smart_event_filters
 
 logger = structlog.get_logger()
 
@@ -69,11 +70,12 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             if entity_filter:
                 query["query"]["bool"]["must"].append(entity_filter)
         
-        # Apply event type filters if specified
+        # Apply smart event type filters if specified
         if event_types:
-            event_type_filters = _build_event_type_filters(event_types)
+            event_type_filters = _build_smart_event_filters(event_types)
             if event_type_filters:
-                query["query"]["bool"]["must"].extend(event_type_filters)
+                query["query"]["bool"]["should"] = event_type_filters
+                query["query"]["bool"]["minimum_should_match"] = 1
         
         # Execute search
         response = await opensearch_client.search(
@@ -158,15 +160,60 @@ def _build_time_range_filter(start_time: str, end_time: str) -> Dict[str, Any]:
 def _parse_time_to_datetime(time_str: str) -> str:
     """Parse time string to full datetime string"""
     import re
-    from datetime import datetime, date
+    from datetime import datetime, date, timedelta
     
     # If it's already a full datetime, return as-is
-    if 'T' in time_str or len(time_str) > 10:
+    if 'T' in time_str:
         return time_str
     
-    # Handle time-only format (HH:MM:SS)
-    time_pattern = r'^\d{2}:\d{2}:\d{2}$'
+    # Handle datetime format without T (YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM)
+    datetime_pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$'
+    if re.match(datetime_pattern, time_str):
+        if len(time_str.split(' ')[1].split(':')) == 2:
+            # Add seconds if not provided
+            return f"{time_str}:00"
+        return time_str
+    
+    # Handle relative date terms with time
+    if time_str.startswith('yesterday '):
+        time_part = time_str.replace('yesterday ', '')
+        time_pattern = r'^\d{2}:\d{2}(:\d{2})?$'
+        if re.match(time_pattern, time_part):
+            if len(time_part.split(':')) == 2:
+                time_part += ':00'
+            yesterday = date.today() - timedelta(days=1)
+            return f"{yesterday.isoformat()}T{time_part}"
+    
+    if time_str.startswith('today '):
+        time_part = time_str.replace('today ', '')
+        time_pattern = r'^\d{2}:\d{2}(:\d{2})?$'
+        if re.match(time_pattern, time_part):
+            if len(time_part.split(':')) == 2:
+                time_part += ':00'
+            today = date.today()
+            return f"{today.isoformat()}T{time_part}"
+    
+    # Handle "X days ago" format
+    days_ago_pattern = r'^(\d+) days? ago$'
+    match = re.match(days_ago_pattern, time_str)
+    if match:
+        days = int(match.group(1))
+        target_date = date.today() - timedelta(days=days)
+        return f"{target_date.isoformat()}T00:00:00"
+    
+    # Handle "a week ago", "2 weeks ago"
+    weeks_ago_pattern = r'^(?:a|(\d+)) weeks? ago$'
+    match = re.match(weeks_ago_pattern, time_str)
+    if match:
+        weeks = 1 if match.group(1) is None else int(match.group(1))
+        target_date = date.today() - timedelta(weeks=weeks)
+        return f"{target_date.isoformat()}T00:00:00"
+    
+    # Handle time-only format (HH:MM:SS or HH:MM)
+    time_pattern = r'^\d{2}:\d{2}(:\d{2})?$'
     if re.match(time_pattern, time_str):
+        if len(time_str.split(':')) == 2:
+            time_str += ':00'
         # Use today's date with the specified time
         today = date.today()
         return f"{today.isoformat()}T{time_str}"
@@ -206,8 +253,8 @@ def _build_entity_filter(entity: str) -> Optional[Dict[str, Any]]:
             }
         }
     elif entity.isdigit():
-        # Agent ID
-        return {"term": {"agent.id": int(entity)}}
+        # Agent ID - keep as string to match data format
+        return {"term": {"agent.id": entity}}
     else:
         # Hostname or general entity
         return {
@@ -225,44 +272,10 @@ def _build_entity_filter(entity: str) -> Optional[Dict[str, Any]]:
         }
 
 
-def _build_event_type_filters(event_types: List[str]) -> List[Dict[str, Any]]:
-    """Build filters for specific event types"""
-    filters = []
-    
-    for event_type in event_types:
-        event_type_lower = event_type.lower()
-        
-        if event_type_lower in ["authentication", "auth", "login"]:
-            filters.append({
-                "terms": {"rule.groups": ["authentication", "pam", "ssh", "login"]}
-            })
-        elif event_type_lower in ["file", "filesystem", "syscheck"]:
-            filters.append({
-                "terms": {"rule.groups": ["syscheck", "file_integrity"]}
-            })
-        elif event_type_lower in ["process", "execution", "command"]:
-            filters.append({
-                "bool": {
-                    "should": [
-                        {"terms": {"rule.groups": ["audit", "process"]}},
-                        {"exists": {"field": "data.command"}},
-                        {"exists": {"field": "data.win.eventdata.commandLine"}},
-                        {"exists": {"field": "data.win.eventdata.image"}}
-                    ]
-                }
-            })
-        elif event_type_lower in ["network", "connection"]:
-            filters.append({
-                "bool": {
-                    "should": [
-                        {"exists": {"field": "data.srcip"}},
-                        {"exists": {"field": "data.dstip"}},
-                        {"terms": {"rule.groups": ["network", "firewall"]}}
-                    ]
-                }
-            })
-    
-    return filters
+def _build_smart_event_filters(event_types: List[str]) -> List[Dict[str, Any]]:
+    """Build smart event filters based on keywords instead of hardcoded mappings"""
+    # Use the smart mapper to build filters
+    return build_smart_event_filters("", event_types)
 
 
 def _extract_correlation_event_data(source: Dict[str, Any]) -> Dict[str, Any]:
