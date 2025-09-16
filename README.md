@@ -10,7 +10,7 @@ This project implements an intelligent assistant that allows security analysts t
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/stephen-devops/wazuh-llm-assistant.git
+   git clone https://github.com/resilmesh2/TFR.git
    cd wazuh-llm-assistant/
    ```
    
