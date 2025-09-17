@@ -109,6 +109,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+THF_venv/
+thf_venv/
+wazuh_llm_venv/
 
 # Spyder project settings
 .spyderproject
