@@ -196,7 +196,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         timeframe = params.get("timeframe", "24h")
         trend_type = params.get("trend_type", "both")  # increasing, decreasing, both
         metric = params.get("metric", "all_trends")  # Use all RCF trend features
-        baseline = params.get("baseline", "7d")  # Baseline period for RCF trend comparison
+        baseline = params.get("baseline", "17d")  # Baseline period for RCF trend comparison
         sensitivity = params.get("sensitivity", "medium")  # low, medium, high
         limit = params.get("limit", 20)
         

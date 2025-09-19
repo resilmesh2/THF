@@ -195,7 +195,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Extract parameters
         timeframe = params.get("timeframe", "24h")
-        baseline = params.get("baseline", "7d")  # Baseline period for RCF comparison
+        baseline = params.get("baseline", "17d")  # Baseline period for RCF comparison
         sensitivity = params.get("sensitivity", "medium")  # low, medium, high
         limit = params.get("limit", 20)
         

@@ -313,7 +313,7 @@ class DetectThreatsTool(WazuhBaseTool):
 class FindAnomaliesTool(WazuhBaseTool):
     """Tool for finding anomalies in security data using various detection methods"""
     name: str = "find_anomalies"
-    description: str = "Detect security anomalies using different analysis types: 'threshold' (entities exceeding user-defined limits - threshold parameter required), 'behavioral' (deviations from RCF-learned baselines), 'trend' (RCF-enhanced trend analysis over time). RCF-based detectors (behavioral/trend) use machine-learned thresholds from OpenSearch and do not require threshold parameters."
+    description: str = "Detect security anomalies using threshold, behavioral, or trend analysis - ALL three types support RCF baselines. KEYWORD PRECEDENCE RULES: 'threshold' = ANY numeric limits ('threshold', 'violations', 'breaches', 'exceeding', 'over X alerts', 'above X', specific numbers) - ALWAYS use threshold type regardless of other keywords like 'RCF baseline', 'sensitivity', 'activity'. 'behavioral' = entity behavior patterns WITHOUT numeric thresholds. 'trend' = time-series trends, escalations, directional shifts. All types use RCF baselines for enhanced accuracy when available."
     args_schema: Type[FindAnomaliesSchema] = FindAnomaliesSchema
     
     def _run(
@@ -368,11 +368,11 @@ class FindAnomaliesTool(WazuhBaseTool):
                 result = await execute(self.opensearch_client, params)
                 
                 
-            elif anomaly_type_lower in ["behavioral", "behaviour", "behavior", "user_behavior", "host_behavior", "baseline", "baseline_comparison"]:
+            elif anomaly_type_lower in ["behavioral", "behaviour", "behavior", "user_behavior", "host_behavior", "behavioral_baseline", "baseline_comparison"]:
                 from functions.find_anomalies.detect_behavioral import execute
                 result = await execute(self.opensearch_client, params)
                 
-            elif anomaly_type_lower in ["trend", "trends", "trending", "time_trend", "temporal_trend"]:
+            elif anomaly_type_lower in ["trend_analysis", "trends", "trending", "time_trend", "temporal_trend"]:
                 from functions.find_anomalies.detect_trend import execute
                 result = await execute(self.opensearch_client, params)
                 
@@ -384,9 +384,16 @@ class FindAnomaliesTool(WazuhBaseTool):
                 result = await execute(self.opensearch_client, params)
                 
             else:
-                # Default to behavioral detection for user-focused queries, threshold for others
-                if any(keyword in anomaly_type_lower for keyword in ["user", "host", "entity", "activity"]):
-                    logger.info("Mapping user/host/activity query to behavioral detection", 
+                # Check for threshold-related keywords first (prioritize explicit threshold mentions)
+                if any(keyword in anomaly_type_lower for keyword in
+                       ["threshold", "thresholds", "exceeding", "above", "limit", "limits", "over"]):
+                    logger.info("Mapping threshold-related query to threshold detection",
+                                anomaly_type=anomaly_type)
+                    from functions.find_anomalies.detect_threshold import execute
+                    result = await execute(self.opensearch_client, params)
+                # Then default to behavioral detection for user-focused queries
+                elif any(keyword in anomaly_type_lower for keyword in ["user", "host", "entity", "activity"]):
+                    logger.info("Mapping user/host/activity query to behavioral detection",
                                anomaly_type=anomaly_type)
                     from functions.find_anomalies.detect_behavioral import execute
                     result = await execute(self.opensearch_client, params)

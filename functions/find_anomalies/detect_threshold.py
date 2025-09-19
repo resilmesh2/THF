@@ -314,7 +314,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         threshold = params.get("threshold")  # Only used for fallback when no RCF data
         metric = params.get("metric", "alert_count")  # What to measure
         timeframe = params.get("timeframe", "24h")
-        baseline = params.get("baseline", "7d")  # Baseline period for comparison
+        baseline = params.get("baseline", "17d")  # Baseline period for comparison
         sensitivity = params.get("sensitivity", "medium")  # RCF confidence sensitivity
         limit = params.get("limit", 20)
         

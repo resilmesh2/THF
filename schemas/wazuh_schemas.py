@@ -111,10 +111,10 @@ class DetectThreatsSchema(BaseModel):
 
 class FindAnomaliesSchema(BaseModel):
     """Schema for find_anomalies function"""
-    anomaly_type: AnomalyType = Field(description="Type of anomaly detection: 'threshold' (entities exceeding user-defined limits), 'behavioral' (deviations from RCF-learned baselines), 'trend' (RCF-enhanced trend analysis over time)")
+    anomaly_type: AnomalyType = Field(description="Type of anomaly detection - ALL three types support RCF baselines. KEYWORD PRECEDENCE: 'threshold' = queries with numeric limits ('threshold', 'violations', 'breaches', 'exceeding', 'over X alerts', 'above X') - ALWAYS use threshold even if query mentions 'RCF baseline'. 'behavioral' = entity behavior patterns without numeric limits. 'trend' = time-series pattern analysis, escalations, directional shifts.")
     metric: Optional[str] = Field(default=None, description="Specific metric to analyze (e.g., 'alert_count', 'severity')")
     timeframe: Optional[str] = Field(default="24h", description="Time frame for anomaly detection (e.g., '24h', '7d')")
-    threshold: Optional[float] = Field(default=None, description="Threshold value for anomaly detection (REQUIRED only for 'threshold' type, NOT used for 'behavioral' or 'trend' types which use RCF-learned baselines)")
+    threshold: Optional[float] = Field(default=None, description="Threshold value for anomaly detection (REQUIRED only for 'threshold' type). All three anomaly types (threshold, behavioral, trend) can use RCF baselines for enhanced accuracy.")
     baseline: Optional[str] = Field(default=None, description="Baseline period for comparison (e.g., '7d', '30d')")
 
 
