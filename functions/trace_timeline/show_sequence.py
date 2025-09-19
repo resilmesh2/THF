@@ -226,9 +226,10 @@ def _parse_time_to_datetime(time_str: str) -> str:
     datetime_pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$'
     if re.match(datetime_pattern, time_str):
         if len(time_str.split(' ')[1].split(':')) == 2:
-            # Add seconds if not provided
-            return f"{time_str}:00"
-        return time_str
+            # Add seconds if not provided and convert to ISO format
+            return f"{time_str}:00".replace(' ', 'T')
+        # Convert to ISO format with T separator
+        return time_str.replace(' ', 'T')
     
     # Handle relative date terms with time
     if time_str.startswith('yesterday '):
