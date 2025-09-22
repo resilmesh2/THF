@@ -93,6 +93,8 @@ if 'session_id' not in st.session_state:
     st.session_state.session_id = f"session_{int(time.time())}"
 if 'last_query' not in st.session_state:
     st.session_state.last_query = ""
+if 'context_info' not in st.session_state:
+    st.session_state.context_info = {}
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
@@ -120,13 +122,23 @@ def send_query(query: str, session_id: str):
     except requests.exceptions.RequestException as e:
         return {"error": f"Connection Error: {str(e)}"}
 
-def reset_session():
+def reset_session(session_id: str):
     """Reset the conversation session"""
     try:
-        response = requests.post(f"{API_BASE_URL}/reset", timeout=10)
+        response = requests.post(f"{API_BASE_URL}/reset", params={"session_id": session_id}, timeout=10)
         return response.status_code == 200
     except requests.exceptions.RequestException:
         return False
+
+def get_session_info(session_id: str):
+    """Get session information"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/session/{session_id}", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except requests.exceptions.RequestException:
+        return None
 
 # Main UI
 # Add Resilmesh logo at the top center using get_logo_path function
@@ -160,12 +172,34 @@ with st.sidebar:
     st.text(f"Session ID: {st.session_state.session_id[-8:]}")
 
     if st.button("🔄 Reset Session"):
-        if reset_session():
+        if reset_session(st.session_state.session_id):
             st.session_state.messages = []
+            old_session = st.session_state.session_id
             st.session_state.session_id = f"session_{int(time.time())}"
-            st.success("Session reset successfully!")
+            st.session_state.context_info = {}
+            st.success(f"Session {old_session[-8:]} reset successfully!")
+            st.rerun()
         else:
             st.error("Failed to reset session")
+
+    # Show session info
+    if st.button("📊 Session Info"):
+        session_info = get_session_info(st.session_state.session_id)
+        if session_info:
+            st.session_state.context_info = session_info
+            st.rerun()
+        else:
+            st.error("Failed to get session info")
+
+    # Display session context info if available
+    if st.session_state.context_info:
+        st.subheader("Session Context")
+        info = st.session_state.context_info
+        if info.get("exists", False):
+            st.write(f"**Messages in session:** {info.get('message_count', 0)}")
+            st.write(f"**Session active:** Yes")
+        else:
+            st.write("**Session active:** No")
 
     st.markdown("---")
 
@@ -181,9 +215,31 @@ with st.sidebar:
         "Find authentication failures in the last 24 hours"
     ]
 
+    # Context-aware follow-up examples
+    followup_queries = [
+        "Give me more details on those critical alerts",
+        "What about authentication failures on that host?",
+        "Show me the timeline for those events",
+        "Are there any related security threats?",
+        "Which users were affected?"
+    ]
+
+    query_type = st.radio(
+        "Query Type:",
+        ["Initial Queries", "Follow-up Queries (use after initial query)"]
+    )
+
+    if query_type == "Initial Queries":
+        selected_queries = example_queries
+        help_text = "These queries establish new context"
+    else:
+        selected_queries = followup_queries
+        help_text = "These queries reference previous conversation context"
+
     selected_example = st.selectbox(
         "Example Queries:",
-        ["Select an example..."] + example_queries
+        ["Select an example..."] + selected_queries,
+        help=help_text
     )
 
     if st.button("Use Example Query") and selected_example != "Select an example...":
