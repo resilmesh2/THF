@@ -10,6 +10,54 @@ import asyncio
 
 logger = structlog.get_logger()
 
+def normalize_wazuh_array_fields(filters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert string values to arrays for known Wazuh array fields
+
+    Args:
+        filters: Original filters dictionary
+
+    Returns:
+        Normalized filters with array values for array fields
+    """
+    if not filters:
+        return filters
+
+    # Known Wazuh array fields that require arrays instead of strings
+    wazuh_array_fields = {
+        # Rule groups
+        "rule.groups", "rule_groups", "rule_group", "groups", "group",
+
+        # MITRE ATT&CK fields
+        "rule.mitre.technique", "rule.mitre.id", "rule.mitre.tactic",
+        "mitre.technique", "mitre.id", "mitre.tactic",
+        "technique", "tactic", "mitre_technique", "mitre_id", "mitre_tactic",
+
+        # Agent groups (if applicable)
+        "agent.groups", "agent_groups",
+
+        # Decoder fields that might be arrays
+        "decoder.name", "decoder_name",
+
+        # Location fields that might be arrays
+        "location", "locations"
+    }
+
+    normalized_filters = {}
+    for field, value in filters.items():
+        if field in wazuh_array_fields and isinstance(value, str):
+            # Convert string to single-element array
+            normalized_filters[field] = [value]
+            logger.debug("Normalized Wazuh array field",
+                        field=field,
+                        original_value=value,
+                        normalized_value=[value])
+        else:
+            # Keep as-is
+            normalized_filters[field] = value
+
+    return normalized_filters
+
 class WazuhOpenSearchClient:
     """OpenSearch client specifically configured for Wazuh SIEM"""
     
@@ -294,6 +342,38 @@ class WazuhOpenSearchClient:
                       time_expr=time_expr)
         return f"{date_str}T{time_expr}"
 
+    def _is_wazuh_array_field(self, field: str) -> bool:
+        """
+        Check if a field is a known Wazuh array field that requires terms query
+
+        Args:
+            field: Field name to check
+
+        Returns:
+            True if field is a known array field, False otherwise
+        """
+        # Known Wazuh array fields that require terms query instead of term
+        wazuh_array_fields = {
+            # Rule groups
+            "rule.groups", "rule_groups", "rule_group", "groups", "group",
+
+            # MITRE ATT&CK fields
+            "rule.mitre.technique", "rule.mitre.id", "rule.mitre.tactic",
+            "mitre.technique", "mitre.id", "mitre.tactic",
+            "technique", "tactic", "mitre_technique", "mitre_id", "mitre_tactic",
+
+            # Agent groups (if applicable)
+            "agent.groups", "agent_groups",
+
+            # Decoder fields that might be arrays
+            "decoder.name", "decoder_name",
+
+            # Location fields that might be arrays
+            "location", "locations"
+        }
+
+        return field in wazuh_array_fields
+
     def build_filters_query(self, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Convert filters dict to OpenSearch query filters with intelligent field detection
@@ -423,8 +503,17 @@ class WazuhOpenSearchClient:
                     query_filters.append({"range": {"rule.level": {"gte": level_value}}})
                 else:
                     query_filters.append({"term": {"rule.level": level_value}})
-            elif field in ["rule_group", "rule_groups", "group", "groups"] and isinstance(value, str):
-                query_filters.append({"term": {"rule.groups": value}})
+            # Handle all known Wazuh array fields - use terms query for proper array matching
+            elif self._is_wazuh_array_field(field):
+                if isinstance(value, str):
+                    # Single value - use terms query to match any element in the array
+                    query_filters.append({"terms": {field: [value]}})
+                elif isinstance(value, list):
+                    # Multiple values - use terms query with all values
+                    query_filters.append({"terms": {field: value}})
+                else:
+                    # Fallback for other types
+                    query_filters.append({"terms": {field: [str(value)]}})
             # Standard filtering logic for other fields
             elif isinstance(value, list):
                 # Multiple values - use terms query

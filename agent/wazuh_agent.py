@@ -2,10 +2,10 @@
 Wazuh Security Agent using LangChain
 """
 from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationBufferWindowMemory, ConversationSummaryBufferMemory
+from langchain.memory import ConversationSummaryBufferMemory
 from langchain.callbacks import LangChainTracer
 from langchain_anthropic import ChatAnthropic
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 import structlog
 import os
 import asyncio
@@ -13,6 +13,7 @@ from collections import defaultdict
 
 from functions._shared.opensearch_client import WazuhOpenSearchClient
 from tools.wazuh_tools import get_all_tools
+from .context_processor import ConversationContextProcessor
 
 logger = structlog.get_logger()
 
@@ -45,7 +46,7 @@ class WazuhSecurityAgent:
         )
         
         # Initialize tools
-        self.tools = get_all_tools(self.opensearch_client)
+        self.tools = get_all_tools(self.opensearch_client, self)
         
         # Initialize session-based memory storage
         self.session_memories = defaultdict(lambda: self._create_session_memory())
@@ -53,6 +54,9 @@ class WazuhSecurityAgent:
 
         # Initialize default memory for backwards compatibility
         self.memory = self._create_session_memory()
+
+        # Initialize context processor
+        self.context_processor = ConversationContextProcessor()
         
         # Initialize callbacks
         callbacks = []
@@ -101,6 +105,19 @@ class WazuhSecurityAgent:
         - Focus on the most important security information
         - If a tool returns placeholder data, acknowledge it's not yet implemented
 
+        Security Analysis Guidance:
+        When analyzing alerts with potential security implications, consider including:
+        - Actionable recommendations when suspicious patterns are detected
+        - Security context for critical or high-severity findings
+        - Investigation suggestions for complex incidents
+        - Risk assessment for concerning activity patterns
+
+        For PowerShell-related alerts, be aware of common attack patterns:
+        - Executable file creation in suspicious locations
+        - Credential harvesting indicators
+        - System enumeration activities
+        - Privilege escalation attempts
+
         Available tools cover:
         - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
         - Alert analysis and statistics across multiple alerts (analyze_alerts)
@@ -112,7 +129,11 @@ class WazuhSecurityAgent:
         - Agent monitoring (monitor_agents)
 
         TOOL USAGE EXAMPLES:
-        For PowerShell process investigation on a specific host, use:
+        For PowerShell executable file creation investigation on a specific host, use:
+        analyze_alerts with action="filtering", filters={"agent.id": "[host_id]", "rule.description": "*powershell*executable*"}
+        OR if no results: filters={"agent.id": "[host_id]", "rule.groups": ["sysmon"]}
+
+        For general PowerShell process investigation on a specific host, use:
         analyze_alerts with action="filtering", filters={"agent.id": "[host_id]", "process.name": "powershell.exe"}
 
         For PowerShell process investigation globally, use:
@@ -121,7 +142,29 @@ class WazuhSecurityAgent:
         For specific host investigation, use:
         investigate_entity with entity_type="host", entity_id="[host_id]", query_type="alerts"
 
-        IMPORTANT: When investigating processes on a specific host, always use analyze_alerts with host filters to maintain context.
+        CRITICAL ARRAY FIELD FORMATS:
+        - rule.groups: ALWAYS use arrays -> "rule.groups": ["sysmon"], "rule.groups": ["windows", "authentication"]
+        - rule.mitre.technique: ALWAYS use arrays -> "rule.mitre.technique": ["T1059"], "rule.mitre.technique": ["T1547"]
+        - rule.mitre.tactic: ALWAYS use arrays -> "rule.mitre.tactic": ["execution"], "rule.mitre.tactic": ["persistence"]
+        - rule.mitre.id: ALWAYS use arrays -> "rule.mitre.id": ["T1059.001"]
+
+        WAZUH SEVERITY LEVELS & QUERY FORMATS (rule.level ranges from 0-14):
+        - Critical: levels 12-14 (use "rule.level": {"gte": 12})
+        - High: levels 8-11 (use "rule.level": {"gte": 8, "lte": 11})
+        - Medium: levels 5-7 (use "rule.level": {"gte": 5, "lte": 7})
+        - Low: levels 3-4 (use "rule.level": {"gte": 3, "lte": 4})
+        - Informational: levels 0-2 (use "rule.level": {"lte": 2})
+        - Medium to high: levels 5+ (use "rule.level": {"gte": 5})
+        - Time ranges: "@timestamp": {"gte": "2024-01-01", "lte": "2024-01-31"}
+        - NEVER use MongoDB syntax: "$gte", "$lte", "$gt", "$lt" are WRONG
+        - ALWAYS use OpenSearch syntax: "gte", "lte", "gt", "lt" are CORRECT
+
+        IMPORTANT:
+        - When investigating processes on a specific host, always use analyze_alerts with host filters
+        - For PowerShell executable creation, use rule.description wildcards or rule.groups=["sysmon"]
+        - Never use non-existent filters like "rule.groups": ["file_creation"]
+        - NEVER use string format for array fields: "rule.groups": "sysmon" is WRONG
+        - NEVER use MongoDB range syntax: {"$gte": 12} is WRONG, use {"gte": 12}
 
         Always provide context about what the data means from a security perspective.
         """
@@ -194,16 +237,23 @@ class WazuhSecurityAgent:
             session_memory = self._get_session_memory(session_id)
             chat_history = session_memory.chat_memory.messages if hasattr(session_memory, 'chat_memory') else []
 
-            # Analyze the query for contextual references
-            context_aware_prompt = self._enhance_prompt_with_context(user_input, chat_history)
+            # Process context separately from LLM prompt
+            context_result = self.context_processor.process_query_with_context(user_input, chat_history)
 
             logger.info("Processing agent query with session context",
                        query_preview=user_input[:100],
                        session_id=session_id,
-                       history_length=len(chat_history))
+                       history_length=len(chat_history),
+                       context_applied=context_result["context_applied"],
+                       reasoning=context_result["reasoning"])
 
-            # Execute agent with context-aware prompt and retry logic
-            response = await self._execute_with_retry(context_aware_prompt)
+            # Create enriched input with context for LLM when context is applied
+            enriched_input = user_input
+            if context_result["context_applied"]:
+                enriched_input = self._create_context_enriched_input(user_input, context_result)
+
+            # Execute agent with context-aware input
+            response = await self._execute_with_retry(enriched_input, context_result)
 
             logger.info("Agent query completed with context",
                        query_preview=user_input[:100],
@@ -219,11 +269,14 @@ class WazuhSecurityAgent:
                         session_id=session_id)
             return f"I encountered an error processing your request: {str(e)}"
 
-    async def _execute_with_retry(self, prompt: str, max_retries: int = 2) -> str:
+    async def _execute_with_retry(self, user_input: str, context_result: Dict[str, Any], max_retries: int = 2) -> str:
         """Execute agent with retry logic for API overload"""
+        # Store context result for tool execution
+        self._current_context_result = context_result
+
         for attempt in range(max_retries + 1):
             try:
-                response = await self.agent.arun(prompt)
+                response = await self.agent.arun(user_input)
                 return response
             except Exception as e:
                 error_str = str(e)
@@ -241,150 +294,55 @@ class WazuhSecurityAgent:
 
         return "Unable to process request due to system overload."
 
-    def _enhance_prompt_with_context(self, user_input: str, chat_history: list) -> str:
+    def _create_context_enriched_input(self, user_input: str, context_result: Dict[str, Any]) -> str:
         """
-        Enhance the user prompt with context analysis and previous conversation context
+        Create enriched input that includes context information for the LLM
 
         Args:
-            user_input: Current user query
-            chat_history: Previous conversation messages
+            user_input: Original user input
+            context_result: Result from context processor
 
         Returns:
-            Enhanced prompt with context instructions
+            Enriched input with context guidance
         """
-        # Check for contextual references in the query
-        contextual_keywords = [
-            "those", "these", "that", "this", "the critical ones", "the high priority",
-            "from there", "on that host", "for that user", "more details", "more information",
-            "same host", "same user", "same timeframe", "same period", "those alerts",
-            "critical alerts", "high severity", "from before", "previously mentioned",
-            "the ones", "earlier", "above", "mentioned", "said alerts", "said events",
-            "these alerts", "these events", "those processes", "these processes"
-        ]
+        suggested_filters = context_result.get("suggested_filters", {})
+        suggested_time_range = context_result.get("suggested_time_range")
 
-        has_contextual_reference = any(keyword in user_input.lower() for keyword in contextual_keywords)
+        # Build context hints
+        context_parts = []
 
-        # Extract previous context if available
-        previous_context = self._extract_previous_context(chat_history) if chat_history else {}
+        if "host" in suggested_filters:
+            context_parts.append(f'host {suggested_filters["host"]} (use "host": "{suggested_filters["host"]}")')
 
-        # Build enhanced prompt - put context at the very beginning for maximum visibility
-        enhanced_prompt = ""
+        if suggested_time_range:
+            context_parts.append(f"timeframe {suggested_time_range}")
 
-        if has_contextual_reference and previous_context:
-            enhanced_prompt += "*** IMMEDIATE CONTEXT INSTRUCTIONS ***\n"
+        if "rule.level" in suggested_filters:
+            level_filter = suggested_filters["rule.level"]
+            if isinstance(level_filter, dict) and "gte" in level_filter:
+                if level_filter["gte"] == 12:
+                    context_parts.append('critical alerts (use "rule.level": {"gte": 12})')
+                elif level_filter["gte"] == 8:
+                    context_parts.append('high severity alerts (use "rule.level": {"gte": 8})')
 
-            # Check if it's a PowerShell-related query
-            if "powershell" in user_input.lower():
-                time_range = "10h" if any("10 hour" in tf for tf in previous_context.get("timeframes", [])) else "24h"
+        if "rule.groups" in suggested_filters:
+            groups = suggested_filters["rule.groups"]
+            if isinstance(groups, list):
+                context_parts.append(f"rule groups {', '.join(groups)}")
 
-                if previous_context.get("hosts"):
-                    host_id = previous_context["hosts"][0]
-                    enhanced_prompt += f"MANDATORY: Use analyze_alerts with action='filtering', filters={{'agent.id': '{host_id}', 'process.name': 'powershell.exe'}}, time_range='{time_range}'\n"
-                    enhanced_prompt += f"HOST ID MUST BE: '{host_id}' (NOT 'specifications' or any other value!)\n"
-                else:
-                    enhanced_prompt += f"MANDATORY: Use investigate_entity with entity_type='process', entity_id='powershell.exe', query_type='alerts', time_range='{time_range}'\n"
+        # Create enriched input
+        if context_parts:
+            context_hint = f"[Context from previous query: {', '.join(context_parts)}] "
+            enriched_input = context_hint + user_input
 
-            enhanced_prompt += f"CONTEXT: {previous_context}\n"
-            enhanced_prompt += "The user is referring to previous results. Maintain these exact parameters.\n\n"
+            logger.info("Created context-enriched input",
+                       original=user_input,
+                       context_parts=context_parts,
+                       enriched_preview=enriched_input[:150])
 
-        if has_contextual_reference and not previous_context:
-            enhanced_prompt += "WARNING: The user appears to be referencing previous information, but no prior context was found. Ask for clarification if needed.\n\n"
+            return enriched_input
 
-        enhanced_prompt += f"{self.system_prompt}\n\n"
-        enhanced_prompt += f"Current user query: {user_input}"
-
-        return enhanced_prompt
-
-    def _extract_previous_context(self, chat_history: list) -> dict:
-        """
-        Extract relevant context from previous conversation messages
-
-        Args:
-            chat_history: List of previous conversation messages
-
-        Returns:
-            Dictionary containing extracted context
-        """
-        context = {
-            "hosts": [],
-            "users": [],
-            "timeframes": [],
-            "alert_types": [],
-            "ip_addresses": [],
-            "last_query_type": None
-        }
-
-        # Look at recent messages (last 4-6 messages)
-        recent_messages = chat_history[-6:] if len(chat_history) > 6 else chat_history
-
-        for message in recent_messages:
-            if hasattr(message, 'content'):
-                content = message.content.lower()
-
-                # Extract hosts (looking for patterns like "host 123", "server-name", etc.)
-                import re
-                host_patterns = [
-                    r'\bhost\s+(\d+)\b',  # Matches "host 012", "host 123" with word boundaries
-                    r'\bon\s+host\s+(\d+)\b',  # Matches "on host 012"
-                    r'\bfor\s+host\s+(\d+)\b',  # Matches "for host 012"
-                    r'\bfrom\s+host\s+(\d+)\b',  # Matches "from host 012"
-                    r'\bthat\s+host\b.*?\b(\d{3})\b',  # "that host" followed by 3-digit number
-                ]
-                for pattern in host_patterns:
-                    matches = re.findall(pattern, content)
-                    context["hosts"].extend(matches)
-
-                # Extract IP addresses
-                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                ip_matches = re.findall(ip_pattern, content)
-                context["ip_addresses"].extend(ip_matches)
-
-                # Extract users
-                user_patterns = [
-                    r'\buser\s+([a-zA-Z][a-zA-Z0-9_.-]+)\b',  # User followed by valid username
-                    r'\busername\s+([a-zA-Z][a-zA-Z0-9_.-]+)\b',
-                    r'\baccount\s+([a-zA-Z][a-zA-Z0-9_.-]+)\b'
-                ]
-                for pattern in user_patterns:
-                    matches = re.findall(pattern, content)
-                    context["users"].extend(matches)
-
-                # Extract timeframes
-                time_patterns = [
-                    r'(last \d+ \w+)',
-                    r'(past \d+ \w+)',
-                    r'(over the (?:past|last) \d+ \w+)',  # "over the past 10 hours"
-                    r'(\d+ hours?)',
-                    r'(\d+ days?)',
-                    r'(this week)',
-                    r'(today)',
-                    r'(yesterday)'
-                ]
-                for pattern in time_patterns:
-                    matches = re.findall(pattern, content)
-                    context["timeframes"].extend(matches)
-
-                # Extract alert types
-                if "critical" in content:
-                    context["alert_types"].append("critical")
-                if "high" in content:
-                    context["alert_types"].append("high")
-                if "failed login" in content or "authentication fail" in content:
-                    context["alert_types"].append("authentication_failed")
-
-        # Remove duplicates and clean up
-        for key in context:
-            if isinstance(context[key], list):
-                context[key] = list(set(context[key]))
-
-        # Prioritize numeric hosts (like "012") over text matches
-        if context["hosts"]:
-            numeric_hosts = [h for h in context["hosts"] if h.isdigit()]
-            if numeric_hosts:
-                # Put numeric hosts first
-                context["hosts"] = numeric_hosts + [h for h in context["hosts"] if not h.isdigit()]
-
-        return context
+        return user_input
     
     async def reset_memory(self, session_id: str = None):
         """Reset conversation memory for a session or all sessions"""

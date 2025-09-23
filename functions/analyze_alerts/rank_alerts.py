@@ -3,7 +3,7 @@ Rank alerts by specified criteria
 """
 from typing import Dict, Any
 import structlog
-from .._shared.opensearch_client import WazuhOpenSearchClient
+from .._shared.opensearch_client import WazuhOpenSearchClient, normalize_wazuh_array_fields
 
 logger = structlog.get_logger()
 
@@ -52,6 +52,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         limit = params.get("limit", 10)
         time_range = params.get("time_range", "7d")
         filters = params.get("filters", {})
+
+        # Convert string values to arrays for known Wazuh array fields
+        filters = normalize_wazuh_array_fields(filters)
         
         # Handle case where filters is None
         if filters is None:

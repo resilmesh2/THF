@@ -3,7 +3,7 @@ Filter alerts by specific criteria
 """
 from typing import Dict, Any
 import structlog
-from .._shared.opensearch_client import WazuhOpenSearchClient
+from .._shared.opensearch_client import WazuhOpenSearchClient, normalize_wazuh_array_fields
 
 logger = structlog.get_logger()
 
@@ -69,9 +69,12 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         if filter_time_range:
             time_range = filter_time_range
             logger.info("Using time_range from filters", time_range=time_range)
-        
-        logger.info("Filtering alerts", 
-                   time_range=time_range, 
+
+        # Convert string values to arrays for known Wazuh array fields
+        filters = normalize_wazuh_array_fields(filters)
+
+        logger.info("Filtering alerts",
+                   time_range=time_range,
                    filters=filters,
                    limit=limit)
         

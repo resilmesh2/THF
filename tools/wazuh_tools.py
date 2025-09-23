@@ -12,16 +12,51 @@ logger = structlog.get_logger()
 
 class WazuhBaseTool(BaseTool):
     """Base class for all Wazuh tools"""
-    
-    def __init__(self, opensearch_client):
+
+    def __init__(self, opensearch_client, agent=None):
         super().__init__()
         # Store opensearch_client as a private attribute to avoid Pydantic validation
         self._opensearch_client = opensearch_client
-    
+        self._agent = agent
+
     @property
     def opensearch_client(self):
         """Get the OpenSearch client"""
         return self._opensearch_client
+
+    @property
+    def agent(self):
+        """Get the agent reference"""
+        return self._agent
+
+    def _merge_context_filters(self, filters, time_range):
+        """Merge context processor suggestions with tool parameters"""
+        if not self.agent or not hasattr(self.agent, '_current_context_result'):
+            return filters, time_range
+
+        context_result = self.agent._current_context_result
+        if not context_result or not context_result.get("context_applied"):
+            return filters, time_range
+
+        suggested_filters = context_result.get("suggested_filters", {})
+        suggested_time_range = context_result.get("suggested_time_range")
+
+        # Merge suggested filters with explicit ones (explicit takes precedence)
+        merged_filters = suggested_filters.copy() if suggested_filters else {}
+        if filters:
+            merged_filters.update(filters)
+
+        # Use explicit time_range if provided, otherwise use suggested
+        final_time_range = time_range if time_range != "7d" else (suggested_time_range or time_range)
+
+        logger.info("Applied context filters",
+                   original_filters=filters,
+                   suggested_filters=suggested_filters,
+                   merged_filters=merged_filters,
+                   time_range_used=final_time_range,
+                   context_reasoning=context_result.get("reasoning"))
+
+        return merged_filters, final_time_range
 
 
 class AnalyzeAlertsTool(WazuhBaseTool):
@@ -54,6 +89,9 @@ class AnalyzeAlertsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute alert analysis"""
         try:
+            # Merge context filters with explicit parameters
+            merged_filters, final_time_range = self._merge_context_filters(filters, time_range)
+
             # Route to specific sub-function
             if action == "ranking":
                 from functions.analyze_alerts.rank_alerts import execute
@@ -65,14 +103,14 @@ class AnalyzeAlertsTool(WazuhBaseTool):
                 from functions.analyze_alerts.distribution_alerts import execute
             else:
                 raise ValueError(f"Unknown action: {action}")
-            
+
             params = {
                 "group_by": group_by,
-                "filters": filters,
+                "filters": merged_filters,
                 "limit": limit,
-                "time_range": time_range
+                "time_range": final_time_range
             }
-            
+
             result = await execute(self.opensearch_client, params)
             
             logger.info("Alert analysis completed", 
@@ -678,23 +716,24 @@ class MonitorAgentsTool(WazuhBaseTool):
             raise Exception(f"Agent monitoring failed: {str(e)}")
 
 
-def get_all_tools(opensearch_client):
+def get_all_tools(opensearch_client, agent=None):
     """
     Get all available Wazuh tools
-    
+
     Args:
         opensearch_client: OpenSearch client instance
-        
+        agent: Optional agent reference for context merging
+
     Returns:
         List of all tool instances
     """
     return [
-        AnalyzeAlertsTool(opensearch_client),
-        InvestigateEntityTool(opensearch_client),
-        MapRelationshipsTool(opensearch_client),
-        DetectThreatsTool(opensearch_client),
-        FindAnomaliesTool(opensearch_client),
-        TraceTimelineTool(opensearch_client),
-        CheckVulnerabilitiesTool(opensearch_client),
-        MonitorAgentsTool(opensearch_client)
+        AnalyzeAlertsTool(opensearch_client, agent),
+        InvestigateEntityTool(opensearch_client, agent),
+        MapRelationshipsTool(opensearch_client, agent),
+        DetectThreatsTool(opensearch_client, agent),
+        FindAnomaliesTool(opensearch_client, agent),
+        TraceTimelineTool(opensearch_client, agent),
+        CheckVulnerabilitiesTool(opensearch_client, agent),
+        MonitorAgentsTool(opensearch_client, agent)
     ]
