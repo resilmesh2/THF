@@ -40,6 +40,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Build the search query focused on progression indicators
         query = {
+            "track_total_hits": True,
             "query": {
                 "bool": {
                     "must": [time_filter],
@@ -101,6 +102,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Process results
         hits = response.get("hits", {})
+        # Get total count directly since no aggregations are used
         total_events = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
         events = hits.get("hits", [])
         

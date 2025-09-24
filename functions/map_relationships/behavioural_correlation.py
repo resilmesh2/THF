@@ -48,7 +48,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Process aggregation results
-        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        total_alerts = response["aggregations"]["total_count"]["value"]
         aggregations = response.get("aggregations", {})
         
         logger.info("Retrieved comprehensive behavioral data", total_alerts=total_alerts)
@@ -412,6 +412,11 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
             }
         },
         "aggs": {
+            "total_count": {
+                "value_count": {
+                    "field": "_id"
+                }
+            },
             # Enhanced temporal correlation with finer granularity
             "temporal_correlation": {
                 "date_histogram": {

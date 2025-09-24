@@ -63,6 +63,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             },
             "size": 0,
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "patch_timeline": {
                     "date_histogram": {
                         "field": "@timestamp",
@@ -278,8 +283,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Extract results
-        hits = response.get("hits", {})
-        total_patch_events = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
+        total_patch_events = response["aggregations"]["total_count"]["value"]
         
         # Process aggregation results
         timeline_agg = response.get("aggregations", {}).get("patch_timeline", {})
