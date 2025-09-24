@@ -93,6 +93,11 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 }
             },
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "ranked_entities": {
                     "terms": {
                         "field": group_by,
@@ -105,8 +110,8 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                                 "size": 1,
                                 "sort": [{"timestamp": {"order": "desc"}}],
                                 "_source": [
-                                    "rule.description", 
-                                    "rule.level", 
+                                    "rule.description",
+                                    "rule.level",
                                     "rule.id",
                                     "rule.groups",
                                     "timestamp",
@@ -139,7 +144,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         )
         
         # Format results
-        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        total_alerts = response["aggregations"]["total_count"]["value"]
         
         ranked_results = []
         for bucket in response["aggregations"]["ranked_entities"]["buckets"]:

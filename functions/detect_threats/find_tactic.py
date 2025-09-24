@@ -86,6 +86,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             ],
             "size": limit,
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "tactics": {
                     "terms": {
                         "field": "rule.mitre.tactic",
@@ -152,7 +157,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Extract results
         hits = response.get("hits", {})
-        total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
+        total_alerts = response["aggregations"]["total_count"]["value"]
         alert_hits = hits.get("hits", [])
         
         # Process aggregations

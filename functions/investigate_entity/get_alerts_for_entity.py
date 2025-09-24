@@ -50,6 +50,11 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 {"@timestamp": {"order": "desc"}}
             ],
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "severity_distribution": {
                     "terms": {
                         "field": "rule.level",
@@ -88,7 +93,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         )
         
         # Format results
-        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        total_alerts = response["aggregations"]["total_count"]["value"]
         
         # Process alerts
         alerts = []

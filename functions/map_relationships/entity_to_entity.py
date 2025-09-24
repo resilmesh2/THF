@@ -3,7 +3,6 @@ Map direct relationships between entities using OpenSearch aggregations
 """
 from typing import Dict, Any, List, Optional
 import structlog
-from datetime import datetime
 
 logger = structlog.get_logger()
 
@@ -46,7 +45,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Process aggregation results
-        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        total_alerts = response["aggregations"]["total_count"]["value"]
         aggregations = response.get("aggregations", {})
         
         logger.info("Retrieved aggregated relationship data", total_alerts=total_alerts)
@@ -178,6 +177,11 @@ def _build_relationship_aggregation_query(source_type: str, source_id: str, targ
             }
         },
         "aggs": {
+            "total_count": {
+                "value_count": {
+                    "field": "_id"
+                }
+            },
             "source_entities": {
                 "terms": {
                     "field": _get_entity_field(source_type),

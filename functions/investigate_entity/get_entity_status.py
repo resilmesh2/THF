@@ -50,6 +50,11 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 {"@timestamp": {"order": "desc"}}
             ],
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "current_status": {
                     "terms": {
                         "field": "agent.name" if entity_type == "host" else f"data.{entity_type}",
@@ -187,8 +192,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         )
         
         # Process results
-        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
-        
+        total_alerts = response["aggregations"]["total_count"]["value"]
+
+
         # Process current status
         current_status = {}
         if response["aggregations"]["current_status"]["buckets"]:

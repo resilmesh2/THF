@@ -58,6 +58,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             },
             "size": 0,
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "vulnerability_hosts": {
                     "terms": {
                         "field": "agent.name",
@@ -222,8 +227,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Extract results
-        hits = response.get("hits", {})
-        total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
+        total_alerts = response["aggregations"]["total_count"]["value"]
         
         # Process vulnerability data by host
         vuln_hosts_agg = response.get("aggregations", {}).get("vulnerability_hosts", {})

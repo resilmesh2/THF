@@ -86,6 +86,11 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 }
             },
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "severity_counts": {
                     "terms": {
                         "field": "rule.level",
@@ -143,7 +148,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                    aggregations_keys=list(response.get("aggregations", {}).keys()) if response.get("aggregations") else [])
         
         # Format results
-        total_alerts = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+        total_alerts = response["aggregations"]["total_count"]["value"]
         
         # Process severity breakdown
         severity_breakdown = {}

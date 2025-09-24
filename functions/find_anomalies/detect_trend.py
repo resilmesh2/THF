@@ -219,6 +219,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             },
             "size": 0,
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "trend_time_series": {
                     "date_histogram": {
                         "field": "@timestamp",
@@ -343,8 +348,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Extract results
-        hits = response.get("hits", {})
-        total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
+        total_alerts = response["aggregations"]["total_count"]["value"]
         
         # Process RCF-aligned time series data
         trend_time_series_agg = response.get("aggregations", {}).get("trend_time_series", {})

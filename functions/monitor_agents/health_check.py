@@ -189,6 +189,11 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
             },
             "size": 0,
             "aggs": {
+                "total_count": {
+                    "value_count": {
+                        "field": "_id"
+                    }
+                },
                 "agents_health_analysis": {
                     "terms": {
                         "field": "agent.id",
@@ -388,21 +393,17 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
         )
         
         # Extract results
-        hits = response.get("hits", {})
-        total_alerts = hits.get("total", {}).get("value", 0) if isinstance(hits.get("total"), dict) else hits.get("total", 0)
-        
+        total_alerts = response["aggregations"]["total_count"]["value"]
+
         # Process aggregation results
         agents_agg = response.get("aggregations", {}).get("agents_health_analysis", {})
-        env_health_agg = response.get("aggregations", {}).get("environment_health", {})
-        rule_health_agg = response.get("aggregations", {}).get("rule_health_distribution", {})
-        system_health_agg = response.get("aggregations", {}).get("system_health_indicators", {})
         
         # Return simplified alert health data for API integration
         alert_health_data = {}
         
-        for bucket in agents_agg.get("buckets", []):  
+        for bucket in agents_agg.get("buckets", []):
             agent_id_value = str(bucket["key"])
-            total_alerts = bucket["doc_count"]
+            agent_alert_count = bucket["doc_count"]
             
             # Process severity analysis
             severity_weighted_score = 0
@@ -434,7 +435,7 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
             config_issues = bucket.get("configuration_issues", {}).get("doc_count", 0)
             
             alert_health_data[agent_id_value] = {
-                "total_alerts": total_alerts,
+                "total_alerts": agent_alert_count,
                 "error_count": error_count,
                 "critical_count": critical_count,
                 "warning_count": warning_count,
