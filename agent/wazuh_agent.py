@@ -38,7 +38,7 @@ class WazuhSecurityAgent:
         
         # Initialize LLM
         self.llm = ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             temperature=0.1,
             anthropic_api_key=anthropic_api_key,
             max_tokens=3000,  # Reduced to help prevent API overload
@@ -86,17 +86,9 @@ class WazuhSecurityAgent:
         You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents,
         analyze alerts, and understand their security posture.
 
-        IMPORTANT CONTEXT PRESERVATION:
-        - Always consider the full conversation history when responding to queries
-        - When users refer to previous results (using words like "those alerts", "the critical ones", "from there", "that host"),
-          maintain the same filters, timeframes, and host specifications from the previous query unless explicitly told otherwise
-        - If a user asks for "more details" or "critical alerts", apply those filters to the SAME context from the previous query
-        - Track the current active context: host names, IP addresses, time ranges, alert types, etc.
-        - Inherit and maintain search parameters from previous queries in the conversation
-        - CRITICAL: When specific tool usage instructions are provided in context, you MUST follow them exactly
-
         Key guidelines:
         - Always use the appropriate tools for data retrieval
+        - If context hints are recognized, consider using previous input parameters to maintain query continuity
         - Provide actionable security insights
         - Highlight critical findings and potential threats
         - Explain technical concepts in clear terms
@@ -104,19 +96,6 @@ class WazuhSecurityAgent:
         - Maintain security context in all responses
         - Focus on the most important security information
         - If a tool returns placeholder data, acknowledge it's not yet implemented
-
-        Security Analysis Guidance:
-        When analyzing alerts with potential security implications, consider including:
-        - Actionable recommendations when suspicious patterns are detected
-        - Security context for critical or high-severity findings
-        - Investigation suggestions for complex incidents
-        - Risk assessment for concerning activity patterns
-
-        For PowerShell-related alerts, be aware of common attack patterns:
-        - Executable file creation in suspicious locations
-        - Credential harvesting indicators
-        - System enumeration activities
-        - Privilege escalation attempts
 
         Available tools cover:
         - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
@@ -128,50 +107,12 @@ class WazuhSecurityAgent:
         - Vulnerability checking (check_vulnerabilities)
         - Agent monitoring (monitor_agents)
 
-        TOOL USAGE EXAMPLES:
-        For PowerShell executable file creation investigation on a specific host, use:
-        analyze_alerts with action="filtering", filters={"agent.id": "[host_id]", "rule.description": "*powershell*executable*"}
-        OR if no results: filters={"agent.id": "[host_id]", "rule.groups": ["sysmon"]}
-
-        For general PowerShell process investigation on a specific host, use:
-        analyze_alerts with action="filtering", filters={"agent.id": "[host_id]", "process.name": "powershell.exe"}
-
-        For PowerShell process investigation globally, use:
-        investigate_entity with entity_type="process", entity_id="powershell.exe", query_type="alerts"
-
-        For specific host investigation, use:
-        investigate_entity with entity_type="host", entity_id="[host_id]", query_type="alerts"
-
-        CRITICAL ARRAY FIELD FORMATS:
-        - rule.groups: ALWAYS use arrays -> "rule.groups": ["sysmon"], "rule.groups": ["windows", "authentication"]
-        - rule.mitre.technique: ALWAYS use arrays -> "rule.mitre.technique": ["T1059"], "rule.mitre.technique": ["T1547"]
-        - rule.mitre.tactic: ALWAYS use arrays -> "rule.mitre.tactic": ["execution"], "rule.mitre.tactic": ["persistence"]
-        - rule.mitre.id: ALWAYS use arrays -> "rule.mitre.id": ["T1059.001"]
-
-        WAZUH SEVERITY LEVELS & QUERY FORMATS (rule.level ranges from 0-14):
-        - Critical: levels 12-14 (use "rule.level": {"gte": 12})
-        - High: levels 8-11 (use "rule.level": {"gte": 8, "lte": 11})
-        - Medium: levels 5-7 (use "rule.level": {"gte": 5, "lte": 7})
-        - Low: levels 3-4 (use "rule.level": {"gte": 3, "lte": 4})
-        - Informational: levels 0-2 (use "rule.level": {"lte": 2})
-        - Medium to high: levels 5+ (use "rule.level": {"gte": 5})
-        - Time ranges: "@timestamp": {"gte": "2024-01-01", "lte": "2024-01-31"}
-        - NEVER use MongoDB syntax: "$gte", "$lte", "$gt", "$lt" are WRONG
-        - ALWAYS use OpenSearch syntax: "gte", "lte", "gt", "lt" are CORRECT
-
-        IMPORTANT:
-        - When investigating processes on a specific host, always use analyze_alerts with host filters
-        - For PowerShell executable creation, use rule.description wildcards or rule.groups=["sysmon"]
-        - Never use non-existent filters like "rule.groups": ["file_creation"]
-        - NEVER use string format for array fields: "rule.groups": "sysmon" is WRONG
-        - NEVER use MongoDB range syntax: {"$gte": 12} is WRONG, use {"gte": 12}
-
         Always provide context about what the data means from a security perspective.
         """
         
         logger.info("Wazuh Security Agent initialized",
                    tools_count=len(self.tools),
-                   model="claude-3-5-sonnet")
+                   model="claude-4-sonnet")
 
     def _create_session_memory(self):
         """Create a new memory instance for a session"""
@@ -433,7 +374,7 @@ class WazuhSecurityAgent:
             Dictionary with system information
         """
         return {
-            "model": "claude-3-5-sonnet",
+            "model": "claude-4-sonnet",
             "tools_available": len(self.tools),
             "tool_names": [tool.name for tool in self.tools],
             "opensearch_host": self.opensearch_config.get("host"),

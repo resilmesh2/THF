@@ -6,6 +6,7 @@ import structlog
 from datetime import datetime
 from collections import defaultdict
 import re
+from ._shared.time_parser import build_time_range_filter
 
 logger = structlog.get_logger()
 
@@ -36,7 +37,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                    event_types=event_types)
         
         # Build time range filter
-        time_filter = _build_time_range_filter(start_time, end_time)
+        time_filter = build_time_range_filter(start_time, end_time)
         
         # Build the search query focused on progression indicators
         query = {
@@ -157,21 +158,6 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         raise Exception(f"Failed to trace attack progression: {str(e)}")
 
 
-def _build_time_range_filter(start_time: str, end_time: str) -> Dict[str, Any]:
-    """Build time range filter for the query"""
-    # Convert time-only formats to full datetime strings
-    parsed_start = _parse_time_to_datetime(start_time)
-    parsed_end = _parse_time_to_datetime(end_time)
-    
-    return {
-        "range": {
-            "@timestamp": {
-                "gte": parsed_start,
-                "lte": parsed_end,
-                "format": "strict_date_optional_time"
-            }
-        }
-    }
 
 
 def _parse_time_to_datetime(time_str: str) -> str:
