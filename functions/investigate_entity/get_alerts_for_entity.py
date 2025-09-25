@@ -8,14 +8,39 @@ from .._shared.opensearch_client import WazuhOpenSearchClient
 logger = structlog.get_logger()
 
 
+def get_field_mapping() -> Dict[str, str]:
+    """Get field mapping for user-friendly field names"""
+    return {
+        "severity": "rule.level",
+        "host": "agent.name",
+        "hosts": "agent.name",
+        "rule": "rule.id",
+        "rules": "rule.id",
+        "rule_id": "rule.id",
+        "rule_description": "rule.description",
+        "user": "data.win.eventdata.user",
+        "users": "data.win.eventdata.user",
+        "target_user": "data.win.eventdata.targetUserName",
+        "time": "@timestamp",
+        "temporal": "@timestamp",
+        "rule_groups": "rule.groups",
+        "groups": "rule.groups",
+        "rule_group": "rule.groups",
+        "process": "data.win.eventdata.originalFileName",
+        "processes": "data.win.eventdata.originalFileName",
+        "process_name": "data.win.eventdata.originalFileName",
+        "command": "data.win.eventdata.commandLine",
+        "command_line": "data.win.eventdata.commandLine"
+    }
+
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Get alerts associated with a specific entity
-    
+    Get alerts associated with a specific entity with optional filtering
+
     Args:
         opensearch_client: OpenSearch client instance
-        params: Parameters including entity_type, entity_id, time_range
-        
+        params: Parameters including entity_type, entity_id, time_range, filters
+
     Returns:
         Alerts for the specified entity with details and statistics
     """
@@ -24,19 +49,33 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         entity_type = params.get("entity_type", "host")
         entity_id = params.get("entity_id")
         time_range = params.get("time_range", "24h")
-        
+        filters = params.get("filters", {})
+
         if not entity_id:
             raise ValueError("entity_id is required")
+
+        # Handle case where filters is None
+        if filters is None:
+            filters = {}
+
+        # Apply field mapping to convert user-friendly names to Wazuh field names
+        field_mapping = get_field_mapping()
+        mapped_filters = {}
+        for key, value in filters.items():
+            mapped_key = field_mapping.get(key, key)  # Use mapping if available, otherwise keep original
+            mapped_filters[mapped_key] = value
+        filters = mapped_filters
         
         logger.info("Getting alerts for entity",
                     entity_type=entity_type,
                     entity_id=entity_id,
-                    time_range=time_range)
-        
+                    time_range=time_range,
+                    filters=filters)
+
         # Build entity query
         entity_query = opensearch_client.build_entity_query(entity_type, entity_id)
-        
-        # Build main query
+
+        # Build main query with entity and time filters
         query = {
             "query": {
                 "bool": {
@@ -84,7 +123,15 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 }
             }
         }
-        
+
+        # Add additional filters if provided (severity, rule filters, etc.)
+        if filters:
+            filter_queries = opensearch_client.build_filters_query(filters)
+            query["query"]["bool"]["must"].extend(filter_queries)
+            logger.info("Applied additional filters to entity query",
+                       filters=filters,
+                       filter_queries=filter_queries)
+
         # Execute query
         response = await opensearch_client.search(
             opensearch_client.alerts_index, 
@@ -99,6 +146,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         alerts = []
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
+            # Extract Windows event data for detailed process information
+            win_eventdata = source.get("data", {}).get("win", {}).get("eventdata", {})
+
             alert = {
                 "timestamp": source.get("@timestamp", ""),
                 "rule_id": source.get("rule", {}).get("id", ""),
@@ -109,7 +159,14 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "source_ip": source.get("data", {}).get("srcip", ""),
                 "source_user": source.get("data", {}).get("srcuser", ""),
                 "destination_ip": source.get("data", {}).get("dstip", ""),
-                "process_name": source.get("data", {}).get("process", {}).get("name", ""),
+                # Process information with proper field extraction
+                "process_name": win_eventdata.get("originalFileName", win_eventdata.get("processName", "")),
+                "process_image": win_eventdata.get("image", ""),
+                "command_line": win_eventdata.get("commandLine", ""),
+                "parent_command_line": win_eventdata.get("parentCommandLine", ""),
+                "process_id": win_eventdata.get("processId", ""),
+                "target_user": win_eventdata.get("targetUserName", ""),
+                "target_filename": win_eventdata.get("targetFilename", ""),
                 "file_name": source.get("data", {}).get("file", {}).get("name", ""),
                 "full_log": source.get("full_log", "")
             }

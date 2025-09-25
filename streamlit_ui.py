@@ -113,7 +113,7 @@ def send_query(query: str, session_id: str):
         response = requests.post(
             f"{API_BASE_URL}/query",
             json={"query": query, "session_id": session_id},
-            timeout=60
+            timeout=120
         )
         if response.status_code == 200:
             return response.json()
@@ -283,7 +283,7 @@ if query and query.strip() and query != st.session_state.last_query:
     })
 
     # Show loading spinner
-    with st.spinner("🤔 Analyzing your security question..."):
+    with st.spinner("🤔 Analyzing your security question. This may take a few minutes ..."):
         response = send_query(query, st.session_state.session_id)
 
     # Add assistant response to history
@@ -362,4 +362,4 @@ with st.expander("ℹ️ Help & Examples"):
 
 # Footer
 st.markdown("---")
-st.markdown("**Wazuh LLM Security Assistant** - Powered by Claude 3.5 Sonnet via LangChain")
+st.markdown("**Wazuh LLM Security Assistant** - Powered by Claude 4 Sonnet via LangChain")

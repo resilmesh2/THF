@@ -581,7 +581,7 @@ def build_process_distribution() -> Dict[str, Any]:
     """Build process distribution aggregation"""
     return {
         "terms": {
-            "field": "data.win.eventdata.processName",
+            "field": "data.win.eventdata.originalFileName",
             "size": 10,
             "order": {"_count": "desc"}
         },
@@ -614,8 +614,8 @@ def get_field_mapping() -> Dict[str, str]:
         "location": "agent.ip",
         "locations": "agent.ip",
         "ip": "agent.ip",
-        "process": "data.win.eventdata.processName",
-        "processes": "data.win.eventdata.processName"
+        "process": "data.win.eventdata.originalFileName",
+        "processes": "data.win.eventdata.originalFileName"
     }
 
 # Result Processors

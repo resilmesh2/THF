@@ -15,20 +15,24 @@ def get_field_mapping() -> Dict[str, str]:
         "hosts": "agent.name",
         "rule": "rule.id",
         "rules": "rule.id",
-        "user": "data.win.eventdata.targetUserName",
-        "users": "data.win.eventdata.targetUserName", 
+        "user": "data.win.eventdata.user",
+        "users": "data.win.eventdata.user",
+        "target_user": "data.win.eventdata.targetUserName",
         "time": "@timestamp",
         "temporal": "@timestamp",
         "rule_groups": "rule.groups",
         "groups": "rule.groups",
         "rule_group": "rule.groups",
         "geographic": "agent.ip",
-        "geo": "agent.ip", 
+        "geo": "agent.ip",
         "location": "agent.ip",
         "locations": "agent.ip",
         "ip": "agent.ip",
-        "process": "data.win.eventdata.processName",
-        "processes": "data.win.eventdata.processName"
+        "process": "data.win.eventdata.originalFileName",
+        "processes": "data.win.eventdata.originalFileName",
+        "process_name": "data.win.eventdata.originalFileName",
+        "command": "data.win.eventdata.commandLine",
+        "command_line": "data.win.eventdata.commandLine"
     }
 
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -158,6 +162,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             # Extract latest alert details
             if bucket["latest_alert"]["hits"]["hits"]:
                 latest = bucket["latest_alert"]["hits"]["hits"][0]["_source"]
+                # Extract Windows event data for detailed process information
+                win_eventdata = latest.get("data", {}).get("win", {}).get("eventdata", {})
+
                 entity_data["latest_alert"] = {
                     "rule_description": latest.get("rule", {}).get("description", ""),
                     "rule_level": latest.get("rule", {}).get("level", 0),
@@ -165,7 +172,13 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                     "rule_groups": latest.get("rule", {}).get("groups", []),
                     "timestamp": latest.get("timestamp", ""),
                     "source_ip": latest.get("data", {}).get("srcip", ""),
-                    "source_user": latest.get("data", {}).get("srcuser", "")
+                    "source_user": latest.get("data", {}).get("srcuser", ""),
+                    # Process information with proper field extraction
+                    "process_name": win_eventdata.get("originalFileName", win_eventdata.get("processName", "")),
+                    "process_image": win_eventdata.get("image", ""),
+                    "command_line": win_eventdata.get("commandLine", ""),
+                    "target_user": win_eventdata.get("targetUserName", ""),
+                    "target_filename": win_eventdata.get("targetFilename", "")
                 }
             
             # Extract severity breakdown

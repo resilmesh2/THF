@@ -108,7 +108,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 },
                 "process_activity": {
                     "terms": {
-                        "field": "data.process.name",
+                        "field": "data.win.eventdata.originalFileName",
                         "size": 10
                     },
                     "aggs": {

@@ -88,7 +88,6 @@ class WazuhSecurityAgent:
 
         Key guidelines:
         - Always use the appropriate tools for data retrieval
-        - If context hints are recognized, consider using previous input parameters to maintain query continuity
         - Provide actionable security insights
         - Highlight critical findings and potential threats
         - Explain technical concepts in clear terms
@@ -108,6 +107,8 @@ class WazuhSecurityAgent:
         - Agent monitoring (monitor_agents)
 
         Always provide context about what the data means from a security perspective.
+
+        Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity.
         """
         
         logger.info("Wazuh Security Agent initialized",

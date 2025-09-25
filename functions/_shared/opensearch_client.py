@@ -190,15 +190,37 @@ class WazuhOpenSearchClient:
 
     def build_time_range_filter(self, time_range: str) -> Dict[str, Any]:
         """
-        Convert time range string to OpenSearch query filter
-        
+        Convert time range string to OpenSearch query filter with comprehensive natural language support
+
         Args:
-            time_range: Time range string (e.g., "7d", "24h", "30m", "2025-07-24T06:00:00 to 2025-07-24T09:00:00")
-            
+            time_range: Time range string including:
+                - Simple: "7d", "24h", "30m"
+                - Natural: "three hours ago", "yesterday", "last night"
+                - Absolute: "2025-07-24T06:00:00 to 2025-07-24T09:00:00"
+
         Returns:
             OpenSearch time range filter
         """
         try:
+            # First, try the comprehensive time parser for natural language support
+            from .time_parser import parse_time_to_opensearch, build_single_time_range_filter
+
+            # Check if it's a simple relative time that the enhanced parser can handle
+            if not any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
+                try:
+                    parsed_time = parse_time_to_opensearch(time_range)
+                    if parsed_time != "now":
+                        return {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": parsed_time,
+                                    "lte": "now"
+                                }
+                            }
+                        }
+                except Exception:
+                    # Fall back to original logic
+                    pass
             # Handle absolute time ranges with various formats
             if any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
                 from datetime import datetime, date

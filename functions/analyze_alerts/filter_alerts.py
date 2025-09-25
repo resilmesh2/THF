@@ -11,24 +11,45 @@ def get_field_mapping() -> Dict[str, str]:
     """Get field mapping for user-friendly field names"""
     return {
         "severity": "rule.level",
-        "host": "agent.name", 
+        "host": "agent.name",
         "hosts": "agent.name",
         "rule": "rule.id",
         "rules": "rule.id",
-        "user": "data.win.eventdata.targetUserName",
-        "users": "data.win.eventdata.targetUserName", 
+        "rule_id": "rule.id",
+        "rule_description": "rule.description",
+        "user": "data.win.eventdata.user",
+        "users": "data.win.eventdata.user",
+        "target_user": "data.win.eventdata.targetUserName",
         "time": "@timestamp",
         "temporal": "@timestamp",
         "rule_groups": "rule.groups",
         "groups": "rule.groups",
         "rule_group": "rule.groups",
         "geographic": "agent.ip",
-        "geo": "agent.ip", 
+        "geo": "agent.ip",
         "location": "agent.ip",
         "locations": "agent.ip",
         "ip": "agent.ip",
-        "process": "data.win.eventdata.processName",
-        "processes": "data.win.eventdata.processName"
+        "process": "data.win.eventdata.originalFileName",
+        "processes": "data.win.eventdata.originalFileName",
+        "process_name": "data.win.eventdata.originalFileName",
+        "command": "data.win.eventdata.commandLine",
+        "command_line": "data.win.eventdata.commandLine",
+        "parent_command": "data.win.eventdata.parentCommandLine",
+        "parent_command_line": "data.win.eventdata.parentCommandLine",
+        "image": "data.win.eventdata.image",
+        "process_image": "data.win.eventdata.image",
+        "executable": "data.win.eventdata.image",
+        "process_id": "data.win.eventdata.processId",
+        "pid": "data.win.eventdata.processId",
+        "parent_process_id": "data.win.eventdata.parentProcessId",
+        "parent_pid": "data.win.eventdata.parentProcessId",
+        "parent_image": "data.win.eventdata.parentImage",
+        "parent_user": "data.win.eventdata.parentUser",
+        "integrity_level": "data.win.eventdata.integrityLevel",
+        "logon_id": "data.win.eventdata.logonId",
+        "current_directory": "data.win.eventdata.currentDirectory",
+        "hashes": "data.win.eventdata.hashes"
     }
 
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -69,6 +90,14 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         if filter_time_range:
             time_range = filter_time_range
             logger.info("Using time_range from filters", time_range=time_range)
+
+        # Apply field mapping to convert user-friendly names to Wazuh field names
+        field_mapping = get_field_mapping()
+        mapped_filters = {}
+        for key, value in filters.items():
+            mapped_key = field_mapping.get(key, key)  # Use mapping if available, otherwise keep original
+            mapped_filters[mapped_key] = value
+        filters = mapped_filters
 
         # Convert string values to arrays for known Wazuh array fields
         filters = normalize_wazuh_array_fields(filters)
@@ -154,6 +183,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         filtered_alerts = []
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
+            # Extract Windows event data for detailed process information
+            win_eventdata = source.get("data", {}).get("win", {}).get("eventdata", {})
+
             alert = {
                 "alert_id": hit["_id"],
                 "timestamp": source.get("@timestamp", ""),
@@ -166,7 +198,30 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "source_ip": source.get("data", {}).get("srcip", ""),
                 "source_user": source.get("data", {}).get("srcuser", ""),
                 "destination_ip": source.get("data", {}).get("dstip", ""),
-                "process_name": source.get("data", {}).get("win", {}).get("eventdata", {}).get("processName", ""),
+                # Process information with comprehensive Windows eventdata extraction
+                "process_name": win_eventdata.get("originalFileName", win_eventdata.get("processName", "")),
+                "process_image": win_eventdata.get("image", ""),
+                "command_line": win_eventdata.get("commandLine", ""),
+                "parent_command_line": win_eventdata.get("parentCommandLine", ""),
+                "process_id": win_eventdata.get("processId", ""),
+                "parent_process_id": win_eventdata.get("parentProcessId", ""),
+                "parent_image": win_eventdata.get("parentImage", ""),
+                "user": win_eventdata.get("user", ""),
+                "parent_user": win_eventdata.get("parentUser", ""),
+                "target_user": win_eventdata.get("targetUserName", ""),
+                "target_filename": win_eventdata.get("targetFilename", ""),
+                "current_directory": win_eventdata.get("currentDirectory", ""),
+                "integrity_level": win_eventdata.get("integrityLevel", ""),
+                "logon_id": win_eventdata.get("logonId", ""),
+                "hashes": win_eventdata.get("hashes", ""),
+                "process_guid": win_eventdata.get("processGuid", ""),
+                "parent_process_guid": win_eventdata.get("parentProcessGuid", ""),
+                "utc_time": win_eventdata.get("utcTime", ""),
+                "terminal_session_id": win_eventdata.get("terminalSessionId", ""),
+                # MITRE ATT&CK information
+                "mitre_technique": source.get("rule", {}).get("mitre", {}).get("technique", []),
+                "mitre_tactic": source.get("rule", {}).get("mitre", {}).get("tactic", []),
+                "mitre_id": source.get("rule", {}).get("mitre", {}).get("id", []),
                 "full_log": source.get("full_log", "")[:200] + "..." if len(source.get("full_log", "")) > 200 else source.get("full_log", "")
             }
             filtered_alerts.append(alert)

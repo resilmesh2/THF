@@ -59,9 +59,10 @@ class ConversationContextProcessor:
         )
         result["has_contextual_reference"] = has_contextual_reference
 
-        # Step 2: Check for explicit new parameters
+        # Step 2: Check for explicit new parameters (exclude contextual references)
         new_time_specified = bool(re.search(r'\b(\d+)\s*(hour|day|minute)', user_input.lower()))
-        new_host_specified = any(word in user_input.lower() for word in ["host", "agent", "server"])
+        # Check for explicit host specification, but exclude contextual references like "this host", "that host"
+        new_host_specified = bool(re.search(r'\b(?:host|agent|server)\s+(?![a-zA-Z]*(?:this|that|the))[a-zA-Z0-9._-]+', user_input.lower()))
         result["explicit_new_params"] = new_time_specified or new_host_specified
 
         # Step 3: Extract previous context
@@ -183,36 +184,70 @@ class ConversationContextProcessor:
 
         for message in recent_messages:
             if hasattr(message, 'content'):
-                content = message.content.lower()
+                content = message.content
+                content_lower = content.lower()
 
-                # Extract hosts
-                host_patterns = [
-                    r'\bhost\s+(\d+)\b',
-                    r'\bon\s+host\s+(\d+)\b',
-                    r'\bfor\s+host\s+(\d+)\b',
-                    r'\bfrom\s+host\s+(\d+)\b',
-                    r'\bthat\s+host\b.*?\b(\d{3})\b',
+                # Extract hosts (preserve original case for case-sensitive queries)
+                # Only match valid hostname patterns and avoid common English words
+                potential_host_patterns = [
+                    (r'\bhost\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)', 'generic_host'),        # host U209-PC-BLEE
+                    (r'\bon\s+host\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)\b', 'on_host'),      # on host U209-PC-BLEE
+                    (r'\bfor\s+host\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)\b', 'for_host'),    # for host U209-PC-BLEE
+                    (r'\bfrom\s+host\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)\b', 'from_host'),  # from host U209-PC-BLEE
+                    (r'\bconcentrated\s+on\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)\b', 'concentrated'), # concentrated on win10-01
+                    (r'\bactivity\s+on\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)\b', 'activity'),        # activity on win10-01
                 ]
-                for pattern in host_patterns:
-                    matches = re.findall(pattern, content)
-                    context["hosts"].extend(matches)
 
-                # Extract IP addresses
+                # Common English words to exclude from hostname extraction
+                hostname_blacklist = {
+                    'if', 'it', 'is', 'at', 'in', 'on', 'of', 'to', 'for', 'and', 'the', 'a', 'an',
+                    'this', 'that', 'these', 'those', 'any', 'all', 'each', 'some', 'such', 'other',
+                    'compromise', 'suspected', 'detected', 'found', 'seen', 'showing', 'indicating',
+                    'impact', 'details', 'information', 'analysis', 'summary', 'report', 'status'
+                }
+
+                for pattern, pattern_type in potential_host_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    for match in matches:
+                        # Filter out common English words and descriptive labels
+                        match_lower = match.lower()
+                        if (match_lower not in hostname_blacklist and
+                            len(match) > 2 and  # Must be longer than 2 characters
+                            not re.search(rf'\bhost\s+{re.escape(match)}\s*:', content, re.IGNORECASE) and
+                            # Ensure it looks like a hostname (contains alphanumeric + common hostname chars)
+                            re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*[a-zA-Z0-9]$', match)):
+                            context["hosts"].append(match)
+
+                # Extract IP addresses (case doesn't matter for IPs)
                 ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
                 ip_matches = re.findall(ip_pattern, content)
                 context["ip_addresses"].extend(ip_matches)
 
-                # Extract users
+                # Extract users (preserve case for case-sensitive queries)
                 user_patterns = [
                     r'\buser\s+([a-zA-Z][a-zA-Z0-9_.-]+)\b',
                     r'\busername\s+([a-zA-Z][a-zA-Z0-9_.-]+)\b',
                     r'\baccount\s+([a-zA-Z][a-zA-Z0-9_.-]+)\b'
                 ]
-                for pattern in user_patterns:
-                    matches = re.findall(pattern, content)
-                    context["users"].extend(matches)
 
-                # Extract timeframes
+                # Common words to exclude from username extraction
+                username_blacklist = {
+                    'if', 'it', 'is', 'at', 'in', 'on', 'of', 'to', 'for', 'and', 'the', 'a', 'an',
+                    'this', 'that', 'these', 'those', 'any', 'all', 'each', 'some', 'such', 'other',
+                    'activity', 'behavior', 'access', 'login', 'logon', 'authentication', 'session',
+                    'privilege', 'escalation', 'compromise', 'suspected', 'detected', 'found'
+                }
+
+                for pattern in user_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    for match in matches:
+                        match_lower = match.lower()
+                        if (match_lower not in username_blacklist and
+                            len(match) > 2 and
+                            re.match(r'^[a-zA-Z][a-zA-Z0-9_.-]*$', match)):
+                            context["users"].append(match)
+
+                # Extract timeframes (case doesn't matter for timeframes)
                 time_patterns = [
                     r'(last \d+ \w+)',
                     r'(past \d+ \w+)',
@@ -226,40 +261,64 @@ class ConversationContextProcessor:
                     r'(\d+d)',
                 ]
                 for pattern in time_patterns:
-                    matches = re.findall(pattern, content)
+                    matches = re.findall(pattern, content_lower)
                     context["timeframes"].extend(matches)
 
-                # Extract alert types and severity levels
-                if "critical" in content:
+                # Extract alert types and severity levels (case insensitive keywords)
+                if "critical" in content_lower:
                     context["alert_types"].append("critical")
                     context["severity_levels"].append("12")
-                if "high" in content:
+                if "high" in content_lower:
                     context["alert_types"].append("high")
                     context["severity_levels"].extend(["8", "9"])
-                if "medium" in content:
+                if "medium" in content_lower:
                     context["alert_types"].append("medium")
                     context["severity_levels"].extend(["5", "6"])
-                if "low" in content:
+                if "low" in content_lower:
                     context["alert_types"].append("low")
                     context["severity_levels"].extend(["3", "4"])
 
-                # Extract processes
+                # Extract processes (preserve case for case-sensitive queries)
                 process_patterns = [
                     r'\bprocess\s+([a-zA-Z0-9_.-]+\.exe)\b',
                     r'\b([a-zA-Z0-9_.-]+\.exe)\s+process\b',
                 ]
+
+                # Common words to exclude from process extraction
+                process_blacklist = {
+                    'if.exe', 'it.exe', 'is.exe', 'at.exe', 'in.exe', 'on.exe', 'of.exe', 'to.exe', 'for.exe'
+                }
+
                 for pattern in process_patterns:
                     matches = re.findall(pattern, content, re.IGNORECASE)
-                    context["processes"].extend(matches)
+                    for match in matches:
+                        match_lower = match.lower()
+                        if (match_lower not in process_blacklist and
+                            len(match) > 6 and  # Must be longer than 6 characters (at least "x.exe")
+                            match.endswith('.exe') and
+                            re.match(r'^[a-zA-Z0-9_.-]+\.exe$', match)):
+                            context["processes"].append(match)
 
                 # Extract rule groups
                 rule_group_patterns = [
                     r'rule\.groups["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_-]+)\b',
                     r'\brule\s+group[s]?\s+["\']?([a-zA-Z0-9_-]+)\b'
                 ]
+
+                # Common words to exclude from rule group extraction
+                rule_group_blacklist = {
+                    'if', 'it', 'is', 'at', 'in', 'on', 'of', 'to', 'for', 'and', 'the', 'a', 'an',
+                    'this', 'that', 'these', 'those', 'any', 'all', 'each', 'some', 'such', 'other'
+                }
+
                 for pattern in rule_group_patterns:
                     matches = re.findall(pattern, content, re.IGNORECASE)
-                    context["rule_groups"].extend(matches)
+                    for match in matches:
+                        match_lower = match.lower()
+                        if (match_lower not in rule_group_blacklist and
+                            len(match) > 2 and
+                            re.match(r'^[a-zA-Z0-9_-]+$', match)):
+                            context["rule_groups"].append(match)
 
                 # Extract query actions
                 if "action" in content and "filtering" in content:

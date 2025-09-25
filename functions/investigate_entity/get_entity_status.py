@@ -168,7 +168,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 },
                 "process_status": {
                     "terms": {
-                        "field": "data.process.name",
+                        "field": "data.win.eventdata.originalFileName",
                         "size": 10
                     },
                     "aggs": {
@@ -289,11 +289,26 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         recent_alerts = []
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
+            # Extract Windows event data for detailed process information
+            win_eventdata = source.get("data", {}).get("win", {}).get("eventdata", {})
+
             alert = {
                 "timestamp": source.get("@timestamp", ""),
                 "rule_id": source.get("rule", {}).get("id", ""),
                 "rule_description": source.get("rule", {}).get("description", ""),
-                "rule_level": source.get("rule", {}).get("level", 0)
+                "rule_level": source.get("rule", {}).get("level", 0),
+                "rule_groups": source.get("rule", {}).get("groups", []),
+                "agent_name": source.get("agent", {}).get("name", ""),
+                "source_ip": source.get("data", {}).get("srcip", ""),
+                "source_user": source.get("data", {}).get("srcuser", ""),
+                # Process information with proper field extraction
+                "process_name": win_eventdata.get("originalFileName", win_eventdata.get("processName", "")),
+                "process_image": win_eventdata.get("image", ""),
+                "command_line": win_eventdata.get("commandLine", ""),
+                "parent_command_line": win_eventdata.get("parentCommandLine", ""),
+                "process_id": win_eventdata.get("processId", ""),
+                "target_user": win_eventdata.get("targetUserName", ""),
+                "target_filename": win_eventdata.get("targetFilename", "")
             }
             recent_alerts.append(alert)
         
