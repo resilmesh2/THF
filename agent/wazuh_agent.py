@@ -35,7 +35,7 @@ class WazuhSecurityAgent:
         
         # Initialize LLM
         self.llm = ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             temperature=0.1,
             anthropic_api_key=anthropic_api_key,
             max_tokens=4000
@@ -104,7 +104,7 @@ class WazuhSecurityAgent:
         
         logger.info("Wazuh Security Agent initialized", 
                    tools_count=len(self.tools),
-                   model="claude-3-5-sonnet")
+                   model="claude-4-sonnet")
     
     async def query(self, user_input: str) -> str:
         """
@@ -198,7 +198,7 @@ class WazuhSecurityAgent:
             Dictionary with system information
         """
         return {
-            "model": "claude-3-5-sonnet",
+            "model": "claude-4-sonnet",
             "tools_available": len(self.tools),
             "tool_names": [tool.name for tool in self.tools],
             "opensearch_host": self.opensearch_config.get("host"),
