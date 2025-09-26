@@ -1,12 +1,9 @@
 """
 OpenSearch client for Wazuh SIEM integration
 """
-from opensearchpy import OpenSearch, AsyncOpenSearch, RequestsHttpConnection
-from typing import Dict, Any, Optional, List
+from opensearchpy import AsyncOpenSearch
+from typing import Dict, Any, List
 import structlog
-from datetime import datetime, timedelta
-import re
-import asyncio
 
 logger = structlog.get_logger()
 

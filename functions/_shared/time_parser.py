@@ -2,7 +2,7 @@
 Comprehensive time parsing utilities for all Wazuh functions - System-wide temporal parsing
 """
 import re
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
 from typing import Dict, Any
 
 
@@ -20,7 +20,17 @@ def parse_time_to_opensearch(time_str: str) -> str:
     if not time_str:
         return "now"
 
-    # Normalize input
+    # Handle ISO datetime formats BEFORE lowercase conversion to preserve case
+    if 'T' in time_str and re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', time_str):
+        # OpenSearch expects strict ISO format - remove timezone info for local time
+        if time_str.endswith('Z') or time_str.endswith('z'):
+            return time_str[:-1]  # Remove the Z/z
+        elif '+00:00' in time_str:
+            return time_str.replace('+00:00', '')  # Remove UTC offset
+        else:
+            return time_str
+
+    # Normalize input for natural language processing
     time_str = time_str.lower().strip()
 
     # Text number to digit mapping
@@ -55,6 +65,13 @@ def parse_time_to_opensearch(time_str: str) -> str:
 
     # Enhanced relative time patterns with comprehensive coverage
     patterns = [
+        # Yesterday/today with specific times
+        (r'^yesterday (\d{1,2}):(\d{2})$', lambda m: _build_datetime_yesterday(int(m.group(1)), int(m.group(2)))),
+        (r'^today (\d{1,2}):(\d{2})$', lambda m: _build_datetime_today(int(m.group(1)), int(m.group(2)))),
+
+        # Time-only formats (assume today)
+        (r'^(\d{1,2}):(\d{2})$', lambda m: _build_datetime_today(int(m.group(1)), int(m.group(2)))),
+
         # Numeric + unit + ago patterns
         (r'^(\d+(?:\.\d+)?)h ago$', lambda m: f"now-{int(float(m.group(1)))}h"),
         (r'^(\d+(?:\.\d+)?) hours? ago$', lambda m: f"now-{int(float(m.group(1)))}h"),
@@ -95,8 +112,8 @@ def parse_time_to_opensearch(time_str: str) -> str:
         if match:
             return converter(match)
 
-    # Handle ISO datetime formats
-    if 'T' in time_str or re.match(r'^\d{4}-\d{2}-\d{2}', time_str):
+    # Handle remaining date formats (after natural language processing)
+    if re.match(r'^\d{4}-\d{2}-\d{2}', time_str):
         return time_str
 
     # Handle simple date formats
@@ -138,3 +155,15 @@ def build_single_time_range_filter(time_range: str) -> Dict[str, Any]:
             }
         }
     }
+
+
+def _build_datetime_yesterday(hour: int, minute: int) -> str:
+    """Build ISO datetime string for yesterday at specific time"""
+    yesterday = date.today() - timedelta(days=1)
+    return f"{yesterday.isoformat()}T{hour:02d}:{minute:02d}:00"
+
+
+def _build_datetime_today(hour: int, minute: int) -> str:
+    """Build ISO datetime string for today at specific time"""
+    today = date.today()
+    return f"{today.isoformat()}T{hour:02d}:{minute:02d}:00"

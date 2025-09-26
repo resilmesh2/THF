@@ -35,7 +35,7 @@ def get_base64_logo():
 # Page configuration
 logo_path = get_logo_path()
 st.set_page_config(
-    page_title="Resilmesh Wazuh Security Assistant",
+    page_title="Resilmesh C3 Threat Hunting Assistant",
     page_icon=logo_path if logo_path else "🛡️",
     layout="wide",
     initial_sidebar_state="expanded"

@@ -99,6 +99,16 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             mapped_filters[mapped_key] = value
         filters = mapped_filters
 
+        # Handle severity name to level conversion
+        severity_filter = None
+        if "rule.level" in filters:
+            severity_value = filters["rule.level"]
+            if isinstance(severity_value, str):
+                # Convert severity name to proper filter
+                severity_filter = get_severity_level_filter(severity_value)
+                # Remove the simple rule.level filter and let it be handled as a complex filter
+                del filters["rule.level"]
+
         # Convert string values to arrays for known Wazuh array fields
         filters = normalize_wazuh_array_fields(filters)
 
@@ -168,6 +178,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         if filters:
             filter_queries = opensearch_client.build_filters_query(filters)
             query["query"]["bool"]["must"].extend(filter_queries)
+
+        # Add severity filter if converted from name to range
+        if severity_filter:
+            query["query"]["bool"]["must"].append(severity_filter)
         
         # Execute query
         response = await opensearch_client.search(
@@ -300,10 +314,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
 def get_severity_name(level: int) -> str:
     """
     Convert Wazuh alert level to severity name
-    
+
     Args:
         level: Alert level number
-        
+
     Returns:
         Severity name string
     """
@@ -317,3 +331,35 @@ def get_severity_name(level: int) -> str:
         return "Low"
     else:
         return "Informational"
+
+
+def get_severity_level_filter(severity_name: str) -> Dict[str, Any]:
+    """
+    Convert severity name to OpenSearch rule.level filter
+
+    Args:
+        severity_name: Severity name string (case-insensitive)
+
+    Returns:
+        OpenSearch range filter for rule.level
+    """
+    severity_lower = severity_name.lower()
+
+    if severity_lower in ['critical', 'crit', 'urgent']:
+        return {"range": {"rule.level": {"gte": 12}}}
+    elif severity_lower in ['high', 'major', 'important']:
+        return {"range": {"rule.level": {"gte": 8, "lt": 12}}}
+    elif severity_lower in ['medium', 'moderate', 'warning']:
+        return {"range": {"rule.level": {"gte": 5, "lt": 8}}}
+    elif severity_lower in ['low', 'minor', 'notice']:
+        return {"range": {"rule.level": {"gte": 3, "lt": 5}}}
+    elif severity_lower in ['informational', 'info', 'debug']:
+        return {"range": {"rule.level": {"lt": 3}}}
+    else:
+        # If it's already a number, use it directly
+        try:
+            level = int(severity_name)
+            return {"term": {"rule.level": level}}
+        except ValueError:
+            # Default to all levels if unrecognized
+            return {"range": {"rule.level": {"gte": 0}}}
