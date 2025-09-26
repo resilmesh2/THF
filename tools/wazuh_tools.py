@@ -121,7 +121,22 @@ class AnalyzeAlertsTool(WazuhBaseTool):
             
         except Exception as e:
             logger.error("Alert analysis failed", action=action, error=str(e))
-            raise Exception(f"Alert analysis failed: {str(e)}")
+
+            # Return structured error response instead of raising exception
+            return {
+                "error": True,
+                "error_message": f"Alert analysis failed: {str(e)}",
+                "action": action,
+                "total_alerts": 0,
+                "returned_alerts": 0,
+                "filters_applied": merged_filters if 'merged_filters' in locals() else {},
+                "time_range": final_time_range if 'final_time_range' in locals() else time_range,
+                "query_info": {
+                    "action": action,
+                    "limit": limit,
+                    "success": False
+                }
+            }
 
 
 class InvestigateEntityTool(WazuhBaseTool):
@@ -188,7 +203,23 @@ class InvestigateEntityTool(WazuhBaseTool):
                          entity_type=entity_type,
                          entity_id=entity_id,
                          error=str(e))
-            raise Exception(f"Entity investigation failed: {str(e)}")
+
+            # Return structured error response instead of raising exception
+            return {
+                "error": True,
+                "error_message": f"Entity investigation failed: {str(e)}",
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "query_type": query_type,
+                "total_alerts": 0,
+                "alerts": [],
+                "time_range": time_range,
+                "query_info": {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "success": False
+                }
+            }
 
 
 class MapRelationshipsTool(WazuhBaseTool):

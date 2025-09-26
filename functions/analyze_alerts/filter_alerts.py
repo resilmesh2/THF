@@ -306,10 +306,28 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         return result
         
     except Exception as e:
-        logger.error("Alert filtering failed", 
-                    error=str(e), 
+        logger.error("Alert filtering failed",
+                    error=str(e),
                     params=params)
-        raise Exception(f"Failed to filter alerts: {str(e)}")
+
+        # Return properly formatted error response instead of raising exception
+        return {
+            "error": True,
+            "error_message": f"Failed to filter alerts: {str(e)}",
+            "total_matching_alerts": 0,
+            "returned_alerts": 0,
+            "time_range": time_range if 'time_range' in locals() else "unknown",
+            "filters_applied": filters if 'filters' in locals() else {},
+            "filtered_alerts": [],
+            "severity_summary": {},
+            "rule_summary": [],
+            "host_summary": [],
+            "time_distribution": [],
+            "query_info": {
+                "limit": limit if 'limit' in locals() else 0,
+                "filters_count": 0
+            }
+        }
 
 def get_severity_name(level: int) -> str:
     """

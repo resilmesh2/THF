@@ -78,7 +78,7 @@ class WazuhSecurityAgent:
             max_iterations=3,  # Reduced to save API calls
             early_stopping_method="generate",  # Generate response instead of force stopping
             callbacks=callbacks,
-            handle_parsing_errors="Check your output and make sure it conforms to the expected format! Continue with the task."
+            handle_parsing_errors=True
         )
         
         # Enhanced system prompt with context preservation instructions
@@ -155,7 +155,7 @@ class WazuhSecurityAgent:
                 max_iterations=5,
                 early_stopping_method="force",
                 callbacks=callbacks,
-                handle_parsing_errors="Check your output and make sure it conforms to the expected format! Continue with the task."
+                handle_parsing_errors=True
             )
 
             logger.info("Agent memory updated for session", session_id=session_id)

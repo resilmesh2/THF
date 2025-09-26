@@ -156,6 +156,51 @@ class ConversationContextProcessor:
 
         return "24h"  # default
 
+    def _is_llm_response(self, content: str) -> bool:
+        """
+        Determine if content is an LLM-generated response vs user query.
+
+        LLM responses contain analysis language, insights, and formatted results.
+        User queries are direct questions or commands.
+        """
+        # Skip very short content (likely user queries)
+        if len(content) < 30:
+            return False
+
+        content_lower = content.lower()
+
+        # Single strong LLM indicators (definitive analysis language)
+        strong_llm_indicators = [
+            'analysis shows', 'analysis reveals', 'data shows', 'findings show',
+            'results indicate', 'the data suggests', 'pattern analysis',
+            'threat assessment', 'security posture', 'risk analysis',
+            'correlation analysis', 'behavioral analysis', 'key findings:',
+            'summary:', 'recommendations:', 'insights:', 'conclusion:',
+            'total_alerts', 'search_parameters', 'timeline_events',
+            '@timestamp', 'agent.name', 'rule.level', 'overview',
+            'alert summary', 'severity distribution', 'top alert types',
+            'critical security events', 'timeline activity', 'peak activity',
+            'immediate attention', 'security investigation', 'monitor',
+            'investigate', 'review', 'check', 'verify'
+        ]
+
+        # Weaker indicators (need multiple)
+        weak_llm_indicators = [
+            'based on', 'indicates that', 'observation:', 'note that',
+            'it appears', 'shows that', 'detected', 'found', 'identified',
+            'suggests', 'may require', 'should', 'need'
+        ]
+
+        # Check for strong indicators (any one is sufficient)
+        for indicator in strong_llm_indicators:
+            if indicator in content_lower:
+                return True
+
+        # Check for multiple weak indicators
+        weak_count = sum(1 for indicator in weak_llm_indicators if indicator in content_lower)
+
+        return weak_count >= 2
+
     def _extract_previous_context(self, chat_history: List) -> Dict[str, List]:
         """
         Extract relevant context from previous conversation messages
@@ -185,6 +230,12 @@ class ConversationContextProcessor:
         for message in recent_messages:
             if hasattr(message, 'content'):
                 content = message.content
+
+                # CRITICAL FIX: Only extract from USER messages and FUNCTION PARAMETERS
+                # Skip LLM-generated responses that contain analysis text
+                if self._is_llm_response(content):
+                    continue
+
                 content_lower = content.lower()
 
                 # Extract hosts (preserve original case for case-sensitive queries)
@@ -198,12 +249,12 @@ class ConversationContextProcessor:
                     (r'\bactivity\s+on\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)\b', 'activity'),        # activity on win10-01
                 ]
 
-                # Common English words to exclude from hostname extraction
+                # Basic hostname validation - since we filter LLM responses at source,
+                # we only need basic validation for actual hostnames
                 hostname_blacklist = {
-                    'if', 'it', 'is', 'at', 'in', 'on', 'of', 'to', 'for', 'and', 'the', 'a', 'an',
-                    'this', 'that', 'these', 'those', 'any', 'all', 'each', 'some', 'such', 'other',
-                    'compromise', 'suspected', 'detected', 'found', 'seen', 'showing', 'indicating',
-                    'impact', 'details', 'information', 'analysis', 'summary', 'report', 'status'
+                    'host', 'hosts', 'self', 'connections', 'shows', 'analysis', 'data',
+                    'information', 'details', 'summary', 'findings', 'results', 'may',
+                    'require', 'immediate', 'security', 'investigation', 'suggests'
                 }
 
                 for pattern, pattern_type in potential_host_patterns:
