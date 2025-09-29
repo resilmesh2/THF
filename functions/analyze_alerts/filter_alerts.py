@@ -91,6 +91,18 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             time_range = filter_time_range
             logger.info("Using time_range from filters", time_range=time_range)
 
+        # Check for timestamp range filters that would conflict with time_range
+        timestamp_range_filter = None
+        if "timestamp" in filters or "@timestamp" in filters:
+            timestamp_value = filters.get("timestamp") or filters.get("@timestamp")
+            if isinstance(timestamp_value, str) and any(sep in timestamp_value for sep in [" to ", " until ", " - "]):
+                timestamp_range_filter = timestamp_value
+                # Remove timestamp filter as it will be handled by build_filters_query
+                filters.pop("timestamp", None)
+                filters.pop("@timestamp", None)
+                logger.info("Detected timestamp range filter, will override time_range",
+                           timestamp_range=timestamp_range_filter, original_time_range=time_range)
+
         # Apply field mapping to convert user-friendly names to Wazuh field names
         field_mapping = get_field_mapping()
         mapped_filters = {}
@@ -108,6 +120,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 severity_filter = get_severity_level_filter(severity_value)
                 # Remove the simple rule.level filter and let it be handled as a complex filter
                 del filters["rule.level"]
+            elif isinstance(severity_value, dict):
+                # Already a complex filter (like {"$gte": 8}) - leave it for build_filters_query to handle
+                # The opensearch_client will convert MongoDB operators to OpenSearch operators
+                logger.info("Using complex severity filter", severity_filter=severity_value)
 
         # Convert string values to arrays for known Wazuh array fields
         filters = normalize_wazuh_array_fields(filters)
@@ -121,9 +137,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         query = {
             "query": {
                 "bool": {
-                    "must": [
-                        opensearch_client.build_single_time_filter(time_range)
-                    ]
+                    "must": []
                 }
             },
             "sort": [
@@ -173,7 +187,17 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 }
             }
         }
-        
+
+        # Add time filter - use timestamp range filter if present, otherwise use time_range
+        if timestamp_range_filter:
+            # Let build_filters_query handle the timestamp range conversion
+            filters["timestamp"] = timestamp_range_filter
+            logger.info("Using timestamp range filter instead of time_range",
+                       timestamp_range=timestamp_range_filter)
+        else:
+            # Use the standard time_range filter
+            query["query"]["bool"]["must"].append(opensearch_client.build_single_time_filter(time_range))
+
         # Add filters if provided
         if filters:
             filter_queries = opensearch_client.build_filters_query(filters)

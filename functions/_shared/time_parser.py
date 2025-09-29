@@ -15,6 +15,7 @@ def parse_time_to_opensearch(time_str: str) -> str:
     - Natural: "yesterday", "an hour ago", "half an hour ago"
     - Relative: "12h", "3d", "1w"
     - Common phrases: "last night", "this morning", "today"
+    - Time-only formats: "09:52:54", "14:30", "yesterday 10:30:45", "today 15:20:30"
     """
 
     if not time_str:
@@ -65,11 +66,14 @@ def parse_time_to_opensearch(time_str: str) -> str:
 
     # Enhanced relative time patterns with comprehensive coverage
     patterns = [
-        # Yesterday/today with specific times
+        # Yesterday/today with specific times (with and without seconds)
+        (r'^yesterday (\d{1,2}):(\d{2}):(\d{2})$', lambda m: _build_datetime_yesterday_with_seconds(int(m.group(1)), int(m.group(2)), int(m.group(3)))),
+        (r'^today (\d{1,2}):(\d{2}):(\d{2})$', lambda m: _build_datetime_today_with_seconds(int(m.group(1)), int(m.group(2)), int(m.group(3)))),
         (r'^yesterday (\d{1,2}):(\d{2})$', lambda m: _build_datetime_yesterday(int(m.group(1)), int(m.group(2)))),
         (r'^today (\d{1,2}):(\d{2})$', lambda m: _build_datetime_today(int(m.group(1)), int(m.group(2)))),
 
         # Time-only formats (assume today)
+        (r'^(\d{1,2}):(\d{2}):(\d{2})$', lambda m: _build_datetime_today_with_seconds(int(m.group(1)), int(m.group(2)), int(m.group(3)))),
         (r'^(\d{1,2}):(\d{2})$', lambda m: _build_datetime_today(int(m.group(1)), int(m.group(2)))),
 
         # Numeric + unit + ago patterns
@@ -163,7 +167,19 @@ def _build_datetime_yesterday(hour: int, minute: int) -> str:
     return f"{yesterday.isoformat()}T{hour:02d}:{minute:02d}:00"
 
 
+def _build_datetime_yesterday_with_seconds(hour: int, minute: int, second: int) -> str:
+    """Build ISO datetime string for yesterday at specific time with seconds"""
+    yesterday = date.today() - timedelta(days=1)
+    return f"{yesterday.isoformat()}T{hour:02d}:{minute:02d}:{second:02d}"
+
+
 def _build_datetime_today(hour: int, minute: int) -> str:
     """Build ISO datetime string for today at specific time"""
     today = date.today()
     return f"{today.isoformat()}T{hour:02d}:{minute:02d}:00"
+
+
+def _build_datetime_today_with_seconds(hour: int, minute: int, second: int) -> str:
+    """Build ISO datetime string for today at specific time with seconds"""
+    today = date.today()
+    return f"{today.isoformat()}T{hour:02d}:{minute:02d}:{second:02d}"

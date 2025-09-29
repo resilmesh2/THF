@@ -323,6 +323,42 @@ class WazuhOpenSearchClient:
         query_filters = []
         
         for field, value in filters.items():
+            # Handle timestamp range strings (e.g., "2024-01-01T10:00:00Z to 2024-01-01T11:00:00Z")
+            if field in ["timestamp", "@timestamp"] and isinstance(value, str):
+                range_separators = [" to ", " until ", " - "]
+                range_parsed = False
+
+                for separator in range_separators:
+                    if separator in value:
+                        try:
+                            # Parse timestamp range string
+                            parts = value.split(separator)
+                            if len(parts) == 2:
+                                start_time = parts[0].strip()
+                                end_time = parts[1].strip()
+
+                                # Convert to proper OpenSearch range filter
+                                query_filters.append({
+                                    "range": {
+                                        "@timestamp": {
+                                            "gte": start_time,
+                                            "lte": end_time
+                                        }
+                                    }
+                                })
+                                logger.info("Converted timestamp range filter",
+                                           original=value, separator=separator,
+                                           start=start_time, end=end_time)
+                                range_parsed = True
+                                break
+                        except Exception as e:
+                            logger.warning("Failed to parse timestamp range with separator",
+                                         field=field, value=value, separator=separator, error=str(e))
+                            continue
+
+                if range_parsed:
+                    continue
+
             # Handle special process filtering with intelligent field detection
             if field in ["process", "process_name", "executable", "image", "command", "cmd", "binary"] and isinstance(value, str):
                 # Use the same logic as build_entity_query for process names
@@ -468,9 +504,10 @@ class WazuhOpenSearchClient:
                         "term": {field: value}
                     })
             elif isinstance(value, dict):
-                # Range or other complex query
+                # Range or other complex query - convert MongoDB-style operators to OpenSearch
+                opensearch_dict = self._convert_mongodb_operators(value)
                 query_filters.append({
-                    "range": {field: value}
+                    "range": {field: opensearch_dict}
                 })
             else:
                 # Simple term query
@@ -479,6 +516,36 @@ class WazuhOpenSearchClient:
                 })
         
         return query_filters
+
+    def _convert_mongodb_operators(self, value_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert MongoDB-style operators to OpenSearch-compatible operators.
+
+        Args:
+            value_dict: Dictionary that may contain MongoDB operators
+
+        Returns:
+            Dictionary with OpenSearch-compatible operators
+        """
+        mongodb_to_opensearch = {
+            '$gte': 'gte',
+            '$gt': 'gt',
+            '$lte': 'lte',
+            '$lt': 'lt',
+            '$ne': 'ne'
+        }
+
+        converted = {}
+        for key, value in value_dict.items():
+            # Convert MongoDB operators to OpenSearch operators
+            opensearch_key = mongodb_to_opensearch.get(key, key)
+            converted[opensearch_key] = value
+
+        logger.debug("Converted MongoDB operators to OpenSearch",
+                    original=value_dict,
+                    converted=converted)
+
+        return converted
 
     def build_aggregation_query(self, agg_type: str, field: str, size: int = 10) -> Dict[str, Any]:
         """
