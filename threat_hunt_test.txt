@@ -1,0 +1,22 @@
+SIMPLE THREAT HUNTING TEST
+==================================================
+Testing server health...
+SUCCESS: Uvicorn is healthy
+Health data: {'status': 'healthy', 'service': 'wazuh-llm-assistant', 'version': '1.0.0', 'agent_initialized': True}
+SUCCESS: Agent is initialized
+
+============================================================
+TESTING THREAT HUNTING QUERY
+============================================================
+Query: Count alerts for each agent over the past six hours.
+Sending request to API...
+Response time: 2.03 seconds
+Status code: 200
+SUCCESS: Query processed successfully!
+Response preview:
+I encountered an error processing your request: name 'initialize_agent' is not defined
+
+============================================================
+TEST COMPLETE
+============================================================
+RESULT: SUCCESS - Threat hunting query worked!

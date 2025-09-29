@@ -1,10 +1,11 @@
 """
 Wazuh Security Agent using LangChain
 """
-from langchain.agents import initialize_agent, AgentType
+from langchain.agents import create_react_agent, AgentExecutor
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain.callbacks import LangChainTracer
 from langchain_anthropic import ChatAnthropic
+from langchain.prompts import PromptTemplate
 from typing import Dict, Any, List
 import structlog
 import os
@@ -68,48 +69,50 @@ class WazuhSecurityAgent:
         except Exception as e:
             logger.warning("Failed to initialize LangSmith tracing", error=str(e))
         
-        # Initialize agent
-        self.agent = initialize_agent(
-            tools=self.tools,
+        # Use a manual React prompt to avoid any hub-related issues
+        template = """Answer the following questions as best you can. You have access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {input}
+Thought:{agent_scratchpad}"""
+
+        self.prompt_template = PromptTemplate(
+            template=template,
+            input_variables=["tools", "tool_names", "input", "agent_scratchpad"]
+        )
+
+        # Create React agent
+        react_agent = create_react_agent(
             llm=self.llm,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            tools=self.tools,
+            prompt=self.prompt_template
+        )
+
+        # Initialize agent executor
+        self.agent = AgentExecutor(
+            agent=react_agent,
+            tools=self.tools,
             memory=self.memory,
             verbose=True,
-            max_iterations=3,  # Reduced to save API calls
-            early_stopping_method="generate",  # Generate response instead of force stopping
+            max_iterations=3,
+            early_stopping_method="generate",
             callbacks=callbacks,
             handle_parsing_errors=True
         )
-        
-        # Enhanced system prompt with context preservation instructions
-        self.system_prompt = """
-        You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents,
-        analyze alerts, and understand their security posture.
-
-        Key guidelines:
-        - Always use the appropriate tools for data retrieval
-        - Provide actionable security insights
-        - Highlight critical findings and potential threats
-        - Explain technical concepts in clear terms
-        - Suggest follow-up investigations when relevant
-        - Maintain security context in all responses
-        - Focus on the most important security information
-        - If a tool returns placeholder data, acknowledge it's not yet implemented
-
-        Available tools cover:
-        - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
-        - Alert analysis and statistics across multiple alerts (analyze_alerts)
-        - Threat detection and MITRE ATT&CK mapping (detect_threats)
-        - Relationship mapping between entities (map_relationships)
-        - Anomaly detection (find_anomalies)
-        - Timeline reconstruction (trace_timeline)
-        - Vulnerability checking (check_vulnerabilities)
-        - Agent monitoring (monitor_agents)
-
-        Always provide context about what the data means from a security perspective.
-
-        Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity.
-        """
         
         logger.info("Wazuh Security Agent initialized",
                    tools_count=len(self.tools),
@@ -146,10 +149,16 @@ class WazuhSecurityAgent:
             except Exception as e:
                 logger.warning("Failed to initialize LangSmith tracing", error=str(e))
 
-            self.agent = initialize_agent(
-                tools=self.tools,
+            # Create React agent with session memory using the same prompt template
+            react_agent = create_react_agent(
                 llm=self.llm,
-                agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+                tools=self.tools,
+                prompt=self.prompt_template
+            )
+
+            self.agent = AgentExecutor(
+                agent=react_agent,
+                tools=self.tools,
                 memory=session_memory,
                 verbose=True,
                 max_iterations=5,
@@ -218,10 +227,25 @@ class WazuhSecurityAgent:
 
         for attempt in range(max_retries + 1):
             try:
-                response = await self.agent.arun(user_input)
+                result = await self.agent.ainvoke({"input": user_input})
+                # ainvoke returns a dict with 'output' key, extract the response
+                response = result.get("output", str(result)) if isinstance(result, dict) else str(result)
                 return response
             except Exception as e:
                 error_str = str(e)
+
+                # Log detailed error information for debugging
+                logger.error("Agent execution error details",
+                           error_type=type(e).__name__,
+                           error_message=str(e),
+                           user_input=user_input[:100])
+
+                # Print full stack trace for initialize_agent errors
+                if "initialize_agent" in error_str:
+                    import traceback
+                    logger.error("Initialize agent error - full traceback",
+                               traceback=traceback.format_exc())
+
                 if "overloaded" in error_str.lower() or "529" in error_str:
                     if attempt < max_retries:
                         wait_time = (2 ** attempt) * 2  # Exponential backoff: 2s, 4s

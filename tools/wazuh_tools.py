@@ -62,20 +62,23 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze statistical patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis using LIST FORMAT: ['severity', 'host'] or ['severity', 'time'] for cross-tabulation. HISTOGRAM DISTRIBUTIONS: Queries with 'hourly', 'today', 'periods', 'histogram' automatically generate bucket outputs with time-series data showing statistical breakdowns. Use for aggregate analysis like 'alert distribution by severity and host', 'hourly alert counts', 'top hosts by alert volume'."
+    description: str = "Analyze alerts with statistical operations. Actions: 'filtering' (find specific alerts), 'counting' (count and breakdown), 'ranking' (rank by frequency), 'distribution' (analyze patterns). WAZUH SEVERITY: Use severity names 'critical', 'high', 'medium', 'low' - NEVER numeric values like 15. Example parameters: action='filtering', filters={'host': 'win10-01', 'severity': 'critical'}, time_range='12h'."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(
         self,
-        action: str,
-        group_by: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,
-        limit: int = 10,
-        time_range: str = "7d",
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for alert analysis"""
         import asyncio
+        # Extract parameters with defaults
+        action = kwargs.get('action')
+        group_by = kwargs.get('group_by')
+        filters = kwargs.get('filters')
+        limit = kwargs.get('limit', 10)
+        time_range = kwargs.get('time_range', '7d')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(action, group_by, filters, limit, time_range, run_manager))
 
     async def _arun(
@@ -147,14 +150,17 @@ class InvestigateEntityTool(WazuhBaseTool):
     
     def _run(
         self,
-        entity_type: str,
-        entity_id: str,
-        query_type: str,
-        time_range: str = "24h",
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for entity investigation"""
         import asyncio
+        # Extract parameters with defaults
+        entity_type = kwargs.get('entity_type')
+        entity_id = kwargs.get('entity_id')
+        query_type = kwargs.get('query_type')
+        time_range = kwargs.get('time_range', '24h')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(entity_type, entity_id, query_type, time_range, run_manager))
 
     async def _arun(
@@ -230,15 +236,18 @@ class MapRelationshipsTool(WazuhBaseTool):
     
     def _run(
         self,
-        source_type: str,
-        source_id: str,
-        relationship_type: str,
-        target_type: Optional[str] = None,
-        timeframe: str = "24h",
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for relationship mapping"""
         import asyncio
+        # Extract parameters with defaults
+        source_type = kwargs.get('source_type')
+        source_id = kwargs.get('source_id')
+        relationship_type = kwargs.get('relationship_type')
+        target_type = kwargs.get('target_type')
+        timeframe = kwargs.get('timeframe', '24h')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(source_type, source_id, relationship_type, target_type, timeframe, run_manager))
 
     async def _arun(
@@ -313,15 +322,18 @@ class DetectThreatsTool(WazuhBaseTool):
     
     def _run(
         self,
-        threat_type: str,
-        technique_id: Optional[str] = None,
-        tactic_name: Optional[str] = None,
-        actor_name: Optional[str] = None,
-        timeframe: str = "7d",
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for threat detection"""
         import asyncio
+        # Extract parameters with defaults
+        threat_type = kwargs.get('threat_type')
+        technique_id = kwargs.get('technique_id')
+        tactic_name = kwargs.get('tactic_name')
+        actor_name = kwargs.get('actor_name')
+        timeframe = kwargs.get('timeframe', '7d')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(threat_type, technique_id, tactic_name, actor_name, timeframe, run_manager))
 
     async def _arun(
@@ -387,15 +399,18 @@ class FindAnomaliesTool(WazuhBaseTool):
     
     def _run(
         self,
-        anomaly_type: str,
-        metric: Optional[str] = None,
-        timeframe: str = "24h",
-        threshold: Optional[float] = None,
-        baseline: Optional[str] = None,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for anomaly detection"""
         import asyncio
+        # Extract parameters with defaults
+        anomaly_type = kwargs.get('anomaly_type')
+        metric = kwargs.get('metric')
+        timeframe = kwargs.get('timeframe', '24h')
+        threshold = kwargs.get('threshold')
+        baseline = kwargs.get('baseline')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(anomaly_type, metric, timeframe, threshold, baseline, run_manager))
 
     async def _arun(
@@ -493,15 +508,18 @@ class TraceTimelineTool(WazuhBaseTool):
     
     def _run(
         self,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        view_type: str = "progression",
-        entity: Optional[str] = None,
-        event_types: Optional[List[str]] = None,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for timeline reconstruction"""
         import asyncio
+        # Extract parameters with defaults
+        start_time = kwargs.get('start_time')
+        end_time = kwargs.get('end_time')
+        view_type = kwargs.get('view_type', 'progression')
+        entity = kwargs.get('entity')
+        event_types = kwargs.get('event_types')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(start_time, end_time, view_type, entity, event_types, run_manager))
 
     async def _arun(
@@ -585,16 +603,19 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
     
     def _run(
         self,
-        action: str,
-        entity_filter: Optional[str] = None,
-        cve_id: Optional[str] = None,
-        severity: Optional[str] = None,
-        patch_status: Optional[str] = None,
-        timeframe: str = "30d",
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for vulnerability checking"""
         import asyncio
+        # Extract parameters with defaults
+        action = kwargs.get('action')
+        entity_filter = kwargs.get('entity_filter')
+        cve_id = kwargs.get('cve_id')
+        severity = kwargs.get('severity')
+        patch_status = kwargs.get('patch_status')
+        timeframe = kwargs.get('timeframe', '30d')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(action, entity_filter, cve_id, severity, patch_status, timeframe, run_manager))
 
     async def _arun(
@@ -670,16 +691,19 @@ class MonitorAgentsTool(WazuhBaseTool):
     
     def _run(
         self,
-        action: str,
-        agent_id: Optional[str] = None,
-        status_filter: Optional[str] = None,
-        version_requirements: Optional[str] = None,
-        timeframe: str = "24h",
-        health_threshold: float = 70.0,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for agent monitoring"""
         import asyncio
+        # Extract parameters with defaults
+        action = kwargs.get('action')
+        agent_id = kwargs.get('agent_id')
+        status_filter = kwargs.get('status_filter')
+        version_requirements = kwargs.get('version_requirements')
+        timeframe = kwargs.get('timeframe', '24h')
+        health_threshold = kwargs.get('health_threshold', 70.0)
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(action, agent_id, status_filter, version_requirements, timeframe, health_threshold, run_manager))
 
     async def _arun(

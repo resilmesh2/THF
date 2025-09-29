@@ -78,7 +78,7 @@ class AnalyzeAlertsSchema(BaseModel):
     """Schema for analyze_alerts function"""
     action: AlertAction = Field(description="Type of analysis to perform")
     group_by: Optional[Union[str, List[str]]] = Field(default=None, description="Field(s) to group results by. Single dimension: 'severity', 'host', 'rule', 'time', 'user', 'process'. Multi-dimensional: ['severity', 'host'] or 'severity,host' for cross-correlations. TEMPORAL ANALYSIS: Use 'time', 'hourly', 'periods', 'histogram' for histogram-style bucket outputs with time-series data. Supports both list format ['severity', 'time'] and comma-separated string 'severity,time'. Temporal keywords automatically detected: 'today', 'hours', 'hourly', 'periods', 'histogram', 'timeline'.")
-    filters: Optional[Dict[str, Any]] = Field(default=None, description="Filters to apply")
+    filters: Optional[Dict[str, Any]] = Field(default=None, description="Filters to apply. WAZUH SEVERITY: Use severity names NOT numbers - {'severity': 'critical'} for level 12+, {'severity': 'high'} for level 8-11, {'severity': 'medium'} for level 5-7, {'severity': 'low'} for level 3-4. NEVER use {'severity': 15} or other numeric values. Examples: {'host': 'win10-01', 'severity': 'critical'}")
     limit: Optional[int] = Field(default=10, description="Maximum number of results")
     time_range: Optional[str] = Field(default="7d", description="Time range for analysis")
 
