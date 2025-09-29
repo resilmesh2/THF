@@ -48,7 +48,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             ]
         
         # Build base query for CVE-related alerts
-        base_conditions = [opensearch_client.build_time_range_filter(timeframe)]
+        base_conditions = [opensearch_client.build_single_time_filter(timeframe)]
         
         # CVE-specific search conditions
         cve_conditions = []

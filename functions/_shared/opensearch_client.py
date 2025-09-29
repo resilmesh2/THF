@@ -185,125 +185,42 @@ class WazuhOpenSearchClient:
             logger.error("Failed to get indices", error=str(e))
             raise
 
-    def build_time_range_filter(self, time_range: str) -> Dict[str, Any]:
+    def build_single_time_filter(self, time_range: str) -> Dict[str, Any]:
         """
-        Convert time range string to OpenSearch query filter with comprehensive natural language support
+        Convert single time range string to OpenSearch query filter.
+        Delegates to the centralized time_parser for consistent parsing.
 
         Args:
             time_range: Time range string including:
                 - Simple: "7d", "24h", "30m"
                 - Natural: "three hours ago", "yesterday", "last night"
-                - Absolute: "2025-07-24T06:00:00 to 2025-07-24T09:00:00"
+                - Absolute ranges: "6am to 11am", "today 06:00-09:00"
 
         Returns:
             OpenSearch time range filter
         """
         try:
-            # First, try the comprehensive time parser for natural language support
-            from .time_parser import parse_time_to_opensearch, build_single_time_range_filter
+            from .time_parser import build_single_time_range_filter, build_time_range_filter
 
-            # Check if it's a simple relative time that the enhanced parser can handle
-            if not any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
-                try:
-                    parsed_time = parse_time_to_opensearch(time_range)
-                    if parsed_time != "now":
-                        return {
-                            "range": {
-                                "@timestamp": {
-                                    "gte": parsed_time,
-                                    "lte": "now"
-                                }
-                            }
-                        }
-                except Exception:
-                    # Fall back to original logic
-                    pass
-            # Handle absolute time ranges with various formats
+            # Handle absolute time ranges (containing separators)
             if any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
-                from datetime import datetime, date
-                today = date.today().strftime("%Y-%m-%d")
-                
-                # Handle format: "today 06:00-09:00"
-                if "today" in time_range.lower() and "-" in time_range:
-                    # Extract the time part after "today"
-                    time_part = time_range.lower().replace("today", "").strip()
-                    if "-" in time_part:
-                        parts = time_part.split("-")
+                # Parse as start-end range
+                separators = [" to ", " until ", "-"]
+                for sep in separators:
+                    if sep in time_range.lower():
+                        parts = time_range.split(sep)
                         if len(parts) == 2:
-                            start_time = self._parse_time_expression(parts[0].strip(), today)
-                            end_time = self._parse_time_expression(parts[1].strip(), today)
-                            
-                            logger.info("Parsed today time range with dash", 
-                                       original_range=time_range,
-                                       start_time=start_time, 
-                                       end_time=end_time)
-                            
-                            return {
-                                "range": {
-                                    "@timestamp": {
-                                        "gte": start_time,
-                                        "lte": end_time
-                                    }
-                                }
-                            }
-                
-                # Handle format: "time to time" or "time until time"
-                elif " to " in time_range.lower() or " until " in time_range.lower():
-                    separator = " to " if " to " in time_range.lower() else " until "
-                    parts = time_range.split(separator)
-                    if len(parts) == 2:
-                        start_time = parts[0].strip()
-                        end_time = parts[1].strip()
-                        
-                        # Convert time expressions to ISO format
-                        start_time = self._parse_time_expression(start_time, today)
-                        end_time = self._parse_time_expression(end_time, today)
-                        
-                        logger.info("Parsed absolute time range", 
-                                   original_range=time_range,
-                                   start_time=start_time, 
-                                   end_time=end_time)
-                        
-                        return {
-                            "range": {
-                                "@timestamp": {
-                                    "gte": start_time,
-                                    "lte": end_time
-                                }
-                            }
-                        }
-            
-            # Handle relative time ranges
-            elif time_range.endswith('d'):
-                days = int(time_range[:-1])
-                gte = f"now-{days}d"
-            elif time_range.endswith('h'):
-                hours = int(time_range[:-1])
-                gte = f"now-{hours}h"
-            elif time_range.endswith('m'):
-                minutes = int(time_range[:-1])
-                gte = f"now-{minutes}m"
-            elif time_range.endswith('s'):
-                seconds = int(time_range[:-1])
-                gte = f"now-{seconds}s"
-            else:
-                # Default to 24 hours if format not recognized
-                gte = "now-24h"
-                logger.warning("Unrecognized time range format, using default", 
-                             time_range=time_range, default="24h")
-                
-            return {
-                "range": {
-                    "@timestamp": {
-                        "gte": gte,
-                        "lte": "now"
-                    }
-                }
-            }
-            
-        except ValueError as e:
-            logger.error("Invalid time range format", 
-                        time_range=time_range, 
+                            start_time = parts[0].strip()
+                            end_time = parts[1].strip()
+                            return build_time_range_filter(start_time, end_time)
+                        break
+
+            # Handle single time expressions (relative times)
+            return build_single_time_range_filter(time_range)
+
+        except Exception as e:
+            logger.error("Invalid time range format",
+                        time_range=time_range,
                         error=str(e))
             # Return default 24h range
             return {

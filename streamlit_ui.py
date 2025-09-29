@@ -153,7 +153,7 @@ if main_logo_path:
         st.markdown('<div style="text-align: center; margin-bottom: 1rem;"><strong>Resilmesh Logo</strong></div>', unsafe_allow_html=True)
 
 # Main header - always use shield icon
-st.markdown('<h1 class="main-header">🛡️ Resilmesh Wazuh Security Assistant</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🛡️ Resilmesh C3 Threat Hunting Assistant</h1>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:

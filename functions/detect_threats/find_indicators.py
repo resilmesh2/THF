@@ -32,7 +32,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Build base query
         must_conditions = [
-            opensearch_client.build_time_range_filter(timeframe)
+            opensearch_client.build_single_time_filter(timeframe)
         ]
         
         # IoC detection patterns

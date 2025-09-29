@@ -80,7 +80,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             "query": {
                 "bool": {
                     "must": [
-                        opensearch_client.build_time_range_filter(time_range),
+                        opensearch_client.build_single_time_filter(time_range),
                         entity_query
                     ]
                 }

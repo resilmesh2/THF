@@ -6,7 +6,7 @@ import structlog
 from datetime import datetime
 import re
 from ._shared.event_type_mapper import build_smart_event_filters
-from .._shared.time_parser import build_time_range_filter
+from functions._shared.time_parser import build_time_range_filter
 
 logger = structlog.get_logger()
 

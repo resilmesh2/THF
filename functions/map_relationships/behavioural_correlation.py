@@ -35,7 +35,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                    timeframe=timeframe)
         
         # Build time range filter
-        time_filter = opensearch_client.build_time_range_filter(timeframe)
+        time_filter = opensearch_client.build_single_time_filter(timeframe)
         
         # Build comprehensive aggregation-based query
         query = _build_behavioral_correlation_query(source_type, source_id, target_type, time_filter)
