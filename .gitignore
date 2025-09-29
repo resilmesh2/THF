@@ -154,6 +154,17 @@ logs/
 temp/
 tmp/
 
+# Development utilities (ignore across all branches)
+force_restart_server.py
+fresh_start.bat
+clear_cache.py
+debug_*.py
+trace_*.py
+test_*.py
+simple_test.py
+*_results.txt
+output_results.txt
+
 # LangSmith
 .langsmith/
 
