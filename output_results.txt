@@ -1,0 +1,72 @@
+ENHANCED THREAT HUNTING TEST WITH SERVER LOG MONITORING
+======================================================================
+Testing server health...
+SUCCESS: Uvicorn is healthy
+Health data: {'status': 'healthy', 'service': 'wazuh-llm-assistant', 'version': '1.0.0', 'agent_initialized': True}
+SUCCESS: Agent is initialized
+
+============================================================
+SERVER LOG MONITORING INSTRUCTIONS
+============================================================
+IMPORTANT: While this test runs, please check your uvicorn terminal for:
+1. Any error messages containing 'initialize_agent'
+2. Any Python exceptions or tracebacks
+3. Any 'Agent execution error details' messages
+4. Any import errors or module loading issues
+5. Any messages about agent initialization
+
+Look for lines that start with:
+- ERROR:
+- Traceback:
+- ImportError:
+- NameError:
+- Agent execution error details
+
+If you see ANY error messages, please copy them!
+============================================================
+
+Press ENTER when you're ready to run the test and monitor the uvicorn terminal...
+Step 1: Testing simple queries...
+
+============================================================
+TESTING SIMPLE QUERY
+============================================================
+
+Testing: hello
+  ERROR: initialize_agent found in simple query 'hello'
+
+Step 2: Testing complex query with full analysis...
+
+============================================================
+TESTING THREAT HUNTING QUERY WITH DETAILED LOGGING
+============================================================
+Query: Count alerts for each agent over the past six hours.
+Session ID: debug_session_1759139743
+Timestamp: 2025-09-29 10:55:43
+Payload: {
+  "query": "Count alerts for each agent over the past six hours.",
+  "session_id": "debug_session_1759139743"
+}
+Sending request to API...
+CHECK YOUR UVICORN TERMINAL NOW FOR ERROR MESSAGES!
+Response time: 2.05 seconds
+Status code: 200
+Response headers: {'date': 'Mon, 29 Sep 2025 09:55:45 GMT', 'server': 'uvicorn', 'content-length': '160', 'content-type': 'application/json'}
+SUCCESS: Query processed successfully!
+Response structure analysis:
+- Response type: <class 'dict'>
+- Response keys: ['response', 'session_id', 'status']
+Response preview:
+I encountered an error processing your request: name 'initialize_agent' is not defined
+
+*** CRITICAL: initialize_agent error found in response! ***
+This means the error is happening during LLM execution,
+not during agent creation or HTTP handling.
+
+======================================================================
+TEST COMPLETE - RESULTS SUMMARY
+======================================================================
+Simple queries: FAILED
+Complex query: FAILED
+OVERALL RESULT: FAILED - Even simple queries have initialize_agent error
+This indicates a fundamental issue with agent execution

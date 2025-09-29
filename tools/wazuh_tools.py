@@ -62,20 +62,23 @@ class WazuhBaseTool(BaseTool):
 class AnalyzeAlertsTool(WazuhBaseTool):
     """Tool for analyzing Wazuh alerts"""
     name: str = "analyze_alerts"
-    description: str = "Analyze and aggregate alerts for statistical analysis, trends, rankings, and distributions. Actions: 'ranking' (rank by frequency), 'counting' (count alerts with breakdowns), 'filtering' (filter by criteria), 'distribution' (analyze statistical patterns across dimensions). For distribution analysis: use single dimensions like 'severity' OR multi-dimensional analysis using LIST FORMAT: ['severity', 'host'] or ['severity', 'time'] for cross-tabulation. HISTOGRAM DISTRIBUTIONS: Queries with 'hourly', 'today', 'periods', 'histogram' automatically generate bucket outputs with time-series data showing statistical breakdowns. Use for aggregate analysis like 'alert distribution by severity and host', 'hourly alert counts', 'top hosts by alert volume'."
+    description: str = "Analyze alerts with statistical operations. Actions: 'filtering' (find specific alerts), 'counting' (count and group alerts), 'ranking' (rank by frequency), 'distribution' (analyze patterns). IMPORTANT PARAMETERS: Use 'group_by' (NOT 'breakdown_by') to specify grouping field like 'agent', 'host', 'severity', 'rule'. For counting queries about agents, use group_by='agent'. Examples: {action: 'counting', group_by: 'agent', time_range: '6h'} or {action: 'filtering', filters: {host: 'win10-01'}}."
     args_schema: Type[AnalyzeAlertsSchema] = AnalyzeAlertsSchema
     
     def _run(
         self,
-        action: str,
-        group_by: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,
-        limit: int = 10,
-        time_range: str = "7d",
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Synchronous wrapper for alert analysis"""
         import asyncio
+        # Extract parameters with defaults
+        action = kwargs.get('action')
+        group_by = kwargs.get('group_by')
+        filters = kwargs.get('filters')
+        limit = kwargs.get('limit', 10)
+        time_range = kwargs.get('time_range', '7d')
+        run_manager = kwargs.get('run_manager')
+
         return asyncio.run(self._arun(action, group_by, filters, limit, time_range, run_manager))
 
     async def _arun(
