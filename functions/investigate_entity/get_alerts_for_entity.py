@@ -54,7 +54,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         if not entity_id:
             raise ValueError("entity_id is required")
 
-        # Handle case where filters is None
+        # Handle case where filters is None FIRST
         if filters is None:
             filters = {}
 
@@ -65,6 +65,48 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             mapped_key = field_mapping.get(key, key)  # Use mapping if available, otherwise keep original
             mapped_filters[mapped_key] = value
         filters = mapped_filters
+
+        # ENHANCED PROCESS DETECTION - Handle process queries dynamically
+        process_search_terms = []
+
+        # Collect all potential process-related search terms
+        for key, value in list(filters.items()):
+            if isinstance(value, str):
+                # Detect process-related searches in any field
+                if any(keyword in key.lower() for keyword in ['process', 'executable', 'image', 'command']):
+                    process_search_terms.append(value)
+                # Also detect rule searches that might be process names
+                elif key in ['rule.id', 'rule.description'] and not value.isdigit():
+                    # Check if it looks like a process name
+                    if any(proc in value.lower() for proc in ['powershell', 'chrome', 'cmd', 'notepad', 'explorer', 'svchost', 'winlogon', '.exe']):
+                        process_search_terms.append(value)
+                        # Remove from rule search since we'll handle it as process
+                        del filters[key]
+                        logger.info("Detected process name in rule field, converting to process search",
+                                   original_field=key, process_term=value)
+
+        # If we found process terms, normalize them
+        if process_search_terms:
+            logger.info("Detected process search terms", terms=process_search_terms)
+            # Remove existing process filters to replace with normalized version
+            process_fields = ["data.win.eventdata.originalFileName", "data.win.eventdata.image"]
+            for field in process_fields:
+                if field in filters:
+                    del filters[field]
+
+            # Normalize the first process term
+            for search_term in process_search_terms:
+                normalized_term = search_term.lower().strip()
+                # Auto-append .exe if not present and not a full path
+                if not normalized_term.endswith('.exe') and '\\' not in normalized_term and '/' not in normalized_term:
+                    exe_term = normalized_term + '.exe'
+                else:
+                    exe_term = normalized_term
+
+                logger.info("Creating process search for entity investigation",
+                           original=search_term, normalized=exe_term)
+                filters["data.win.eventdata.originalFileName"] = exe_term
+                break
         
         logger.info("Getting alerts for entity",
                     entity_type=entity_type,
@@ -131,6 +173,33 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             logger.info("Applied additional filters to entity query",
                        filters=filters,
                        filter_queries=filter_queries)
+
+        # ENHANCED: If we detected process search terms, add comprehensive process search
+        if process_search_terms:
+            for search_term in process_search_terms:
+                normalized_term = search_term.lower().strip()
+                if not normalized_term.endswith('.exe') and '\\' not in normalized_term and '/' not in normalized_term:
+                    exe_term = normalized_term + '.exe'
+                else:
+                    exe_term = normalized_term
+
+                # Create comprehensive process search across multiple fields
+                process_query = {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"data.win.eventdata.originalFileName": f"*{exe_term}*"}},
+                            {"wildcard": {"data.win.eventdata.image": f"*{exe_term}*"}},
+                            {"wildcard": {"data.win.eventdata.commandLine": f"*{exe_term}*"}},
+                            {"wildcard": {"rule.description": f"*{normalized_term}*"}},
+                            {"wildcard": {"rule.description": f"*{exe_term}*"}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
+                query["query"]["bool"]["must"].append(process_query)
+                logger.info("Added comprehensive process search to entity query",
+                           search_term=search_term, normalized=exe_term)
+                break
 
         # Execute query
         response = await opensearch_client.search(

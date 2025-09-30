@@ -141,9 +141,26 @@ class ConversationContextProcessor:
         result["has_contextual_reference"] = has_contextual_reference
 
         # Step 2: Check for explicit new parameters (exclude contextual references)
-        new_time_specified = bool(re.search(r'\b(\d+)\s*(hour|day|minute)', user_input.lower()))
-        # Check for explicit host specification, but exclude contextual references like "this host", "that host"
-        new_host_specified = bool(re.search(r'\b(?:host|agent|server)\s+(?![a-zA-Z]*(?:this|that|the))[a-zA-Z0-9._-]+', user_input.lower()))
+        # Only consider it a NEW parameter if there's NO contextual reference detected
+        # OR if the parameter is explicitly different from context (e.g., "last 24 hours" when context has "3 days")
+        new_time_specified = False
+        if not has_contextual_reference:
+            # Enhanced patterns to catch more explicit time specifications
+            time_patterns = [
+                r'\b(\d+)\s*(hour|day|minute|week|month)s?\b',  # "3 days", "24 hours"
+                r'\b(\d+)([hdwmy])\b',  # "3d", "24h", "1w"
+                r'\b(yesterday|today|last\s+\w+|past\s+\d+)',  # "yesterday", "last week", "past 5"
+                r'\bfrom\s+(\d+)\s*(hour|day)s?\s+ago\b',  # "from 3 days ago"
+            ]
+            new_time_specified = any(bool(re.search(pattern, user_input.lower())) for pattern in time_patterns)
+
+        # FIXED: Don't treat host mentions as "new" if the query has contextual keywords
+        # "Investigate these 78 alerts on host U209-PC-BLEE" = contextual reference (has "these", "78")
+        # "Show me alerts on host WIN-SERVER" = new explicit specification (no context)
+        new_host_specified = False
+        if not has_contextual_reference:
+            new_host_specified = bool(re.search(r'\b(?:host|agent|server)\s+(?![a-zA-Z]*(?:this|that|the))[a-zA-Z0-9._-]+', user_input.lower()))
+
         result["explicit_new_params"] = new_time_specified or new_host_specified
 
         # Step 3: Extract previous context
@@ -555,9 +572,13 @@ class ConversationContextProcessor:
 
         enhanced_params = tool_params.copy()
 
-        # Apply time_range if suggested and not already specified
-        if suggested_time_range and "time_range" not in enhanced_params:
+        # Apply time_range if suggested - OVERRIDE any default time_range from LLM
+        # Context preservation takes priority over LLM defaults
+        if suggested_time_range:
             enhanced_params["time_range"] = suggested_time_range
+            logger.info("Overriding time_range with context",
+                       original=tool_params.get("time_range"),
+                       suggested=suggested_time_range)
 
         # Merge filters
         if suggested_filters:
