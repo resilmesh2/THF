@@ -12,16 +12,111 @@ logger = structlog.get_logger()
 
 class WazuhBaseTool(BaseTool):
     """Base class for all Wazuh tools"""
-    
-    def __init__(self, opensearch_client):
+
+    def __init__(self, opensearch_client, agent=None):
         super().__init__()
         # Store opensearch_client as a private attribute to avoid Pydantic validation
         self._opensearch_client = opensearch_client
-    
+        self._agent = agent
+
     @property
     def opensearch_client(self):
         """Get the OpenSearch client"""
         return self._opensearch_client
+
+    @property
+    def agent(self):
+        """Get the agent reference"""
+        return self._agent
+
+    def _merge_context_filters(self, filters, time_range, default_time_range="7d"):
+        """
+        Merge context processor suggestions with tool parameters
+
+        Handles three scenarios:
+        1. Default temporal setting - LLM using tool default → Apply context
+        2. Preserved temporal context - Contextual query → Apply context
+        3. Submitted temporal value - User explicitly requests new time → Use user's value
+
+        Args:
+            filters: Explicit filters from LLM
+            time_range: Time range from LLM
+            default_time_range: The default time range for this tool (e.g., "7d", "24h")
+
+        Returns:
+            Tuple of (merged_filters, final_time_range)
+        """
+        if not self.agent or not hasattr(self.agent, '_current_context_result'):
+            return filters, time_range
+
+        context_result = self.agent._current_context_result
+
+        # SCENARIO 3: If context processor detected explicit new params, don't apply context
+        # This handles cases like "Now show me alerts from the past 1 day" (new explicit request)
+        if not context_result or not context_result.get("context_applied"):
+            logger.info("No context applied - using LLM time_range as-is",
+                       time_range=time_range,
+                       reason=context_result.get("reasoning") if context_result else "No context available")
+            return filters, time_range
+
+        suggested_filters = context_result.get("suggested_filters", {})
+        suggested_time_range = context_result.get("suggested_time_range")
+
+        # Merge suggested filters with explicit ones (explicit takes precedence)
+        merged_filters = suggested_filters.copy() if suggested_filters else {}
+        if filters:
+            merged_filters.update(filters)
+
+        # SCENARIO 1 & 2: Determine if we should apply context to time_range
+        # Common defaults that LLM uses when not explicitly specified by user
+        common_defaults = ["7d", "24h", "1h", "30d", "1d", "12h", "6h", "3d", "14d"]
+
+        # Check if time_range differs from suggested context (possible explicit user request)
+        # If user said "past 3 days" (context), then "past 12 hours" (new request),
+        # LLM will pass "12h" which differs from context "3d"
+        time_differs_from_context = (suggested_time_range and
+                                     time_range != suggested_time_range)
+
+        # Apply context if:
+        # 1. LLM is using a common default (likely not user-specified), OR
+        # 2. LLM's time matches the context (reinforcing existing context)
+        if suggested_time_range:
+            if time_range in common_defaults:
+                # SCENARIO 1: LLM using default → Override with context
+                final_time_range = suggested_time_range
+                logger.info("Overriding default time_range with context",
+                           llm_default=time_range,
+                           context_suggested=suggested_time_range,
+                           reason="LLM using common default")
+            elif time_range == suggested_time_range:
+                # SCENARIO 2: LLM matches context → Preserve context
+                final_time_range = suggested_time_range
+                logger.info("Preserving time_range from context",
+                           time_range=time_range,
+                           reason="LLM matches context")
+            elif time_differs_from_context:
+                # SCENARIO 3 (edge case): LLM provides different value that's not in defaults
+                # This might be an explicit user request that context processor missed
+                # Be conservative: use LLM's value
+                final_time_range = time_range
+                logger.info("Using LLM time_range despite context",
+                           llm_value=time_range,
+                           context_value=suggested_time_range,
+                           reason="LLM provides non-default value different from context")
+            else:
+                final_time_range = time_range
+        else:
+            final_time_range = time_range
+
+        logger.info("Applied context filters",
+                   original_filters=filters,
+                   suggested_filters=suggested_filters,
+                   merged_filters=merged_filters,
+                   original_time_range=time_range,
+                   final_time_range=final_time_range,
+                   context_reasoning=context_result.get("reasoning"))
+
+        return merged_filters, final_time_range
 
 
 class AnalyzeAlertsTool(WazuhBaseTool):
@@ -54,6 +149,9 @@ class AnalyzeAlertsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute alert analysis"""
         try:
+            # Merge context filters with explicit parameters
+            merged_filters, final_time_range = self._merge_context_filters(filters, time_range)
+
             # Route to specific sub-function
             if action == "ranking":
                 from functions.analyze_alerts.rank_alerts import execute
@@ -65,14 +163,14 @@ class AnalyzeAlertsTool(WazuhBaseTool):
                 from functions.analyze_alerts.distribution_alerts import execute
             else:
                 raise ValueError(f"Unknown action: {action}")
-            
+
             params = {
                 "group_by": group_by,
-                "filters": filters,
+                "filters": merged_filters,
                 "limit": limit,
-                "time_range": time_range
+                "time_range": final_time_range
             }
-            
+
             result = await execute(self.opensearch_client, params)
             
             logger.info("Alert analysis completed", 
@@ -83,7 +181,22 @@ class AnalyzeAlertsTool(WazuhBaseTool):
             
         except Exception as e:
             logger.error("Alert analysis failed", action=action, error=str(e))
-            raise Exception(f"Alert analysis failed: {str(e)}")
+
+            # Return structured error response instead of raising exception
+            return {
+                "error": True,
+                "error_message": f"Alert analysis failed: {str(e)}",
+                "action": action,
+                "total_alerts": 0,
+                "returned_alerts": 0,
+                "filters_applied": merged_filters if 'merged_filters' in locals() else {},
+                "time_range": final_time_range if 'final_time_range' in locals() else time_range,
+                "query_info": {
+                    "action": action,
+                    "limit": limit,
+                    "success": False
+                }
+            }
 
 
 class InvestigateEntityTool(WazuhBaseTool):
@@ -114,10 +227,14 @@ class InvestigateEntityTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute entity investigation"""
         try:
+            # FIXED: Merge context filters with explicit parameters
+            # Note: entity investigations don't have filters param, but do have time_range
+            _, final_time_range = self._merge_context_filters(None, time_range, default_time_range="24h")
+
             # Route to specific sub-function based on query_type
             # Handle both string and enum values
             query_value = query_type.value if hasattr(query_type, 'value') else query_type
-            
+
             if query_value == "alerts":
                 from functions.investigate_entity.get_alerts_for_entity import execute
             elif query_value == "details":
@@ -128,11 +245,11 @@ class InvestigateEntityTool(WazuhBaseTool):
                 from functions.investigate_entity.get_entity_status import execute
             else:
                 raise ValueError(f"Unknown query_type: {query_value}. Supported types: alerts, details, activity, status")
-            
+
             params = {
                 "entity_type": entity_type,
                 "entity_id": entity_id,
-                "time_range": time_range
+                "time_range": final_time_range
             }
             
             result = await execute(self.opensearch_client, params)
@@ -150,7 +267,23 @@ class InvestigateEntityTool(WazuhBaseTool):
                          entity_type=entity_type,
                          entity_id=entity_id,
                          error=str(e))
-            raise Exception(f"Entity investigation failed: {str(e)}")
+
+            # Return structured error response instead of raising exception
+            return {
+                "error": True,
+                "error_message": f"Entity investigation failed: {str(e)}",
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "query_type": query_type,
+                "total_alerts": 0,
+                "alerts": [],
+                "time_range": time_range,
+                "query_info": {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "success": False
+                }
+            }
 
 
 class MapRelationshipsTool(WazuhBaseTool):
@@ -183,12 +316,15 @@ class MapRelationshipsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute relationship mapping"""
         try:
+            # FIXED: Merge context to preserve timeframe
+            _, final_timeframe = self._merge_context_filters(None, timeframe, default_time_range="24h")
+
             # Build parameters for the relationship mapping functions
             params = {
                 "source_type": source_type,
                 "source_id": source_id,
                 "target_type": target_type,
-                "timeframe": timeframe
+                "timeframe": final_timeframe
             }
             
             # Remove None values
@@ -266,12 +402,15 @@ class DetectThreatsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute threat detection"""
         try:
+            # FIXED: Merge context to preserve timeframe
+            _, final_timeframe = self._merge_context_filters(None, timeframe, default_time_range="7d")
+
             # Handle both string and enum values
             threat_value = threat_type.value if hasattr(threat_type, 'value') else threat_type
-            
+
             # Normalize to lowercase for case-insensitive matching
             threat_value_lower = threat_value.lower()
-            
+
             # Route to specific sub-function based on threat_type
             if threat_value_lower == "technique":
                 from functions.detect_threats.find_technique import execute
@@ -285,13 +424,13 @@ class DetectThreatsTool(WazuhBaseTool):
                 from functions.detect_threats.find_chains import execute
             else:
                 raise ValueError(f"Unknown threat_type: {threat_value}. Supported types: technique, tactic, threat_actor/actor, indicators/ioc, chains")
-            
+
             # Build parameters
             params = {
                 "technique_id": technique_id,
                 "tactic_name": tactic_name,
                 "actor_name": actor_name,
-                "timeframe": timeframe
+                "timeframe": final_timeframe
             }
             
             # Execute the detection
@@ -340,13 +479,16 @@ class FindAnomaliesTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute anomaly detection"""
         try:
+            # FIXED: Merge context to preserve timeframe
+            _, final_timeframe = self._merge_context_filters(None, timeframe, default_time_range="24h")
+
             # Build parameters for the anomaly detection function
             params = {
                 "metric": metric,
-                "timeframe": timeframe,
+                "timeframe": final_timeframe,
                 "baseline": baseline
             }
-            
+
             # Only include threshold parameter for threshold-based detection
             anomaly_type_lower = anomaly_type.lower()
             if anomaly_type_lower in ["threshold", "thresholds"]:
@@ -446,6 +588,21 @@ class TraceTimelineTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute timeline reconstruction"""
         try:
+            # FIXED: Apply context to timeline queries
+            # Convert suggested_time_range to start_time/end_time if available
+            if self.agent and hasattr(self.agent, '_current_context_result'):
+                context_result = self.agent._current_context_result
+                if context_result and context_result.get("context_applied"):
+                    suggested_time_range = context_result.get("suggested_time_range")
+
+                    # If context has time range and LLM is using defaults, override
+                    if suggested_time_range and (start_time is None or start_time == "now-7d"):
+                        start_time = f"now-{suggested_time_range}"
+                        end_time = "now"
+                        logger.info("Overriding timeline with context time range",
+                                   suggested=suggested_time_range,
+                                   start_time=start_time)
+
             # Set default time range if not provided
             if start_time is None:
                 start_time = "now-7d"  # Default to 7 days ago
@@ -540,13 +697,16 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute vulnerability checking"""
         try:
+            # FIXED: Merge context to preserve timeframe
+            _, final_timeframe = self._merge_context_filters(None, timeframe, default_time_range="30d")
+
             # Build parameters for the vulnerability checking function
             params = {
                 "entity_filter": entity_filter,
                 "cve_id": cve_id,
                 "severity": severity,
                 "patch_status": patch_status,
-                "timeframe": timeframe
+                "timeframe": final_timeframe
             }
             
             # Remove None values
@@ -625,12 +785,15 @@ class MonitorAgentsTool(WazuhBaseTool):
     ) -> Dict[str, Any]:
         """Execute agent monitoring"""
         try:
+            # FIXED: Merge context to preserve timeframe
+            _, final_timeframe = self._merge_context_filters(None, timeframe, default_time_range="24h")
+
             # Build parameters for the monitoring function
             params = {
                 "agent_id": agent_id,
                 "status_filter": status_filter,
                 "version_requirements": version_requirements,
-                "timeframe": timeframe,
+                "timeframe": final_timeframe,
                 "health_threshold": health_threshold
             }
             
@@ -678,23 +841,24 @@ class MonitorAgentsTool(WazuhBaseTool):
             raise Exception(f"Agent monitoring failed: {str(e)}")
 
 
-def get_all_tools(opensearch_client):
+def get_all_tools(opensearch_client, agent=None):
     """
     Get all available Wazuh tools
-    
+
     Args:
         opensearch_client: OpenSearch client instance
-        
+        agent: Optional agent reference for context merging
+
     Returns:
         List of all tool instances
     """
     return [
-        AnalyzeAlertsTool(opensearch_client),
-        InvestigateEntityTool(opensearch_client),
-        MapRelationshipsTool(opensearch_client),
-        DetectThreatsTool(opensearch_client),
-        FindAnomaliesTool(opensearch_client),
-        TraceTimelineTool(opensearch_client),
-        CheckVulnerabilitiesTool(opensearch_client),
-        MonitorAgentsTool(opensearch_client)
+        AnalyzeAlertsTool(opensearch_client, agent),
+        InvestigateEntityTool(opensearch_client, agent),
+        MapRelationshipsTool(opensearch_client, agent),
+        DetectThreatsTool(opensearch_client, agent),
+        FindAnomaliesTool(opensearch_client, agent),
+        TraceTimelineTool(opensearch_client, agent),
+        CheckVulnerabilitiesTool(opensearch_client, agent),
+        MonitorAgentsTool(opensearch_client, agent)
     ]

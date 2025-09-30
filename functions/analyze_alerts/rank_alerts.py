@@ -3,7 +3,7 @@ Rank alerts by specified criteria
 """
 from typing import Dict, Any
 import structlog
-from .._shared.opensearch_client import WazuhOpenSearchClient
+from .._shared.opensearch_client import WazuhOpenSearchClient, normalize_wazuh_array_fields
 
 logger = structlog.get_logger()
 
@@ -11,24 +11,42 @@ def get_field_mapping() -> Dict[str, str]:
     """Get field mapping for user-friendly field names"""
     return {
         "severity": "rule.level",
-        "host": "agent.name", 
+        "host": "agent.name",
         "hosts": "agent.name",
         "rule": "rule.id",
         "rules": "rule.id",
-        "user": "data.win.eventdata.targetUserName",
-        "users": "data.win.eventdata.targetUserName", 
+        "rule_id": "rule.id",
+        "rule_description": "rule.description",
+        "description": "rule.description",
+        "user": "data.win.eventdata.user",
+        "users": "data.win.eventdata.user",
+        "target_user": "data.win.eventdata.targetUserName",
         "time": "@timestamp",
         "temporal": "@timestamp",
         "rule_groups": "rule.groups",
         "groups": "rule.groups",
         "rule_group": "rule.groups",
         "geographic": "agent.ip",
-        "geo": "agent.ip", 
+        "geo": "agent.ip",
         "location": "agent.ip",
         "locations": "agent.ip",
         "ip": "agent.ip",
-        "process": "data.win.eventdata.processName",
-        "processes": "data.win.eventdata.processName"
+        "process": "data.win.eventdata.originalFileName",
+        "processes": "data.win.eventdata.originalFileName",
+        "process_name": "data.win.eventdata.originalFileName",
+        "command": "data.win.eventdata.commandLine",
+        "command_line": "data.win.eventdata.commandLine",
+        "parent_command": "data.win.eventdata.parentCommandLine",
+        "parent_command_line": "data.win.eventdata.parentCommandLine",
+        "image": "data.win.eventdata.image",
+        "process_image": "data.win.eventdata.image",
+        "executable": "data.win.eventdata.image",
+        "process_id": "data.win.eventdata.processId",
+        "pid": "data.win.eventdata.processId",
+        "parent_process_id": "data.win.eventdata.parentProcessId",
+        "parent_pid": "data.win.eventdata.parentProcessId",
+        "integrity_level": "data.win.eventdata.integrityLevel",
+        "logon_id": "data.win.eventdata.logonId"
     }
 
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,6 +70,43 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         limit = params.get("limit", 10)
         time_range = params.get("time_range", "7d")
         filters = params.get("filters", {})
+
+        # Handle case where filters is None FIRST
+        if filters is None:
+            filters = {}
+
+        # Apply field mapping to convert user-friendly names to Wazuh field names
+        field_mapping = get_field_mapping()
+        mapped_filters = {}
+        for key, value in filters.items():
+            mapped_key = field_mapping.get(key, key)  # Use mapping if available, otherwise keep original
+            mapped_filters[mapped_key] = value
+        filters = mapped_filters
+
+        # Handle intelligent process name filtering
+        process_fields = ["data.win.eventdata.originalFileName", "data.win.eventdata.image"]
+        for field in process_fields:
+            if field in filters and isinstance(filters[field], str):
+                process_value = filters[field]
+                # Auto-append .exe if not present and not a full path
+                if not process_value.endswith('.exe') and '\\' not in process_value and '/' not in process_value:
+                    filters[field] = process_value + '.exe'
+                    logger.info("Auto-corrected process name",
+                               original=process_value, corrected=filters[field])
+
+        # Handle intelligent rule filtering - redirect text searches to rule.description
+        if "rule.id" in filters and isinstance(filters["rule.id"], str):
+            rule_value = filters["rule.id"]
+            # If rule value is not numeric, likely searching for rule content
+            if not rule_value.isdigit():
+                # Move to rule.description for text-based searches
+                filters["rule.description"] = rule_value
+                del filters["rule.id"]
+                logger.info("Redirected text rule search to description",
+                           search_term=rule_value)
+
+        # Convert string values to arrays for known Wazuh array fields
+        filters = normalize_wazuh_array_fields(filters)
         
         # Handle case where filters is None
         if filters is None:
@@ -85,7 +140,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             "query": {
                 "bool": {
                     "must": [
-                        opensearch_client.build_time_range_filter(time_range)
+                        opensearch_client.build_single_time_filter(time_range)
                     ]
                 }
             },
@@ -155,6 +210,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             # Extract latest alert details
             if bucket["latest_alert"]["hits"]["hits"]:
                 latest = bucket["latest_alert"]["hits"]["hits"][0]["_source"]
+                # Extract Windows event data for detailed process information
+                win_eventdata = latest.get("data", {}).get("win", {}).get("eventdata", {})
+
                 entity_data["latest_alert"] = {
                     "rule_description": latest.get("rule", {}).get("description", ""),
                     "rule_level": latest.get("rule", {}).get("level", 0),
@@ -162,7 +220,13 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                     "rule_groups": latest.get("rule", {}).get("groups", []),
                     "timestamp": latest.get("timestamp", ""),
                     "source_ip": latest.get("data", {}).get("srcip", ""),
-                    "source_user": latest.get("data", {}).get("srcuser", "")
+                    "source_user": latest.get("data", {}).get("srcuser", ""),
+                    # Process information with proper field extraction
+                    "process_name": win_eventdata.get("originalFileName", win_eventdata.get("processName", "")),
+                    "process_image": win_eventdata.get("image", ""),
+                    "command_line": win_eventdata.get("commandLine", ""),
+                    "target_user": win_eventdata.get("targetUserName", ""),
+                    "target_filename": win_eventdata.get("targetFilename", "")
                 }
             
             # Extract severity breakdown

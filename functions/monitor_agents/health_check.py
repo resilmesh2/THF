@@ -184,7 +184,7 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
         query = {
             "query": {
                 "bool": {
-                    "must": [opensearch_client.build_time_range_filter(timeframe)]
+                    "must": [opensearch_client.build_single_time_filter(timeframe)]
                 }
             },
             "size": 0,

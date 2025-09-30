@@ -36,7 +36,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         query = {
             "query": {
                 "bool": {
-                    "must": [opensearch_client.build_time_range_filter(timeframe)],
+                    "must": [opensearch_client.build_single_time_filter(timeframe)],
                     "should": [
                         # CVE patterns in rule descriptions
                         {"wildcard": {"rule.description": "*CVE-*"}},

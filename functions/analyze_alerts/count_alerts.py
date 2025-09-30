@@ -3,7 +3,7 @@ Count alerts with optional filters
 """
 from typing import Dict, Any
 import structlog
-from .._shared.opensearch_client import WazuhOpenSearchClient
+from .._shared.opensearch_client import WazuhOpenSearchClient, normalize_wazuh_array_fields
 
 logger = structlog.get_logger()
 
@@ -11,24 +11,42 @@ def get_field_mapping() -> Dict[str, str]:
     """Get field mapping for user-friendly field names"""
     return {
         "severity": "rule.level",
-        "host": "agent.name", 
+        "host": "agent.name",
         "hosts": "agent.name",
         "rule": "rule.id",
         "rules": "rule.id",
-        "user": "data.win.eventdata.targetUserName",
-        "users": "data.win.eventdata.targetUserName", 
+        "rule_id": "rule.id",
+        "rule_description": "rule.description",
+        "description": "rule.description",  # Add missing mapping
+        "user": "data.win.eventdata.user",
+        "users": "data.win.eventdata.user",
+        "target_user": "data.win.eventdata.targetUserName",
         "time": "@timestamp",
         "temporal": "@timestamp",
         "rule_groups": "rule.groups",
         "groups": "rule.groups",
         "rule_group": "rule.groups",
         "geographic": "agent.ip",
-        "geo": "agent.ip", 
+        "geo": "agent.ip",
         "location": "agent.ip",
         "locations": "agent.ip",
         "ip": "agent.ip",
-        "process": "data.win.eventdata.processName",
-        "processes": "data.win.eventdata.processName"
+        "process": "data.win.eventdata.originalFileName",
+        "processes": "data.win.eventdata.originalFileName",
+        "process_name": "data.win.eventdata.originalFileName",
+        "command": "data.win.eventdata.commandLine",
+        "command_line": "data.win.eventdata.commandLine",
+        "parent_command": "data.win.eventdata.parentCommandLine",
+        "parent_command_line": "data.win.eventdata.parentCommandLine",
+        "image": "data.win.eventdata.image",
+        "process_image": "data.win.eventdata.image",
+        "executable": "data.win.eventdata.image",
+        "process_id": "data.win.eventdata.processId",
+        "pid": "data.win.eventdata.processId",
+        "parent_process_id": "data.win.eventdata.parentProcessId",
+        "parent_pid": "data.win.eventdata.parentProcessId",
+        "integrity_level": "data.win.eventdata.integrityLevel",
+        "logon_id": "data.win.eventdata.logonId"
     }
 
 async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -46,10 +64,21 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         # Extract parameters
         time_range = params.get("time_range", "7d")
         filters = params.get("filters", {})
-        
+
         # Handle case where filters is None
         if filters is None:
             filters = {}
+
+        # Apply field mapping to convert user-friendly names to Wazuh field names
+        field_mapping = get_field_mapping()
+        mapped_filters = {}
+        for key, value in filters.items():
+            mapped_key = field_mapping.get(key, key)  # Use mapping if available, otherwise keep original
+            mapped_filters[mapped_key] = value
+        filters = mapped_filters
+
+        # Convert string values to arrays for known Wazuh array fields
+        filters = normalize_wazuh_array_fields(filters)
         
         # Handle separate time_start and time_end parameters from LLM
         time_start = filters.pop("time_start", None)
@@ -78,7 +107,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             "query": {
                 "bool": {
                     "must": [
-                        opensearch_client.build_time_range_filter(time_range)
+                        opensearch_client.build_single_time_filter(time_range)
                     ]
                 }
             },
@@ -112,6 +141,34 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "agent_counts": {
                     "terms": {
                         "field": "agent.name",
+                        "size": 10,
+                        "order": {"_count": "desc"}
+                    }
+                },
+                "process_counts": {
+                    "terms": {
+                        "field": "data.win.eventdata.originalFileName",
+                        "size": 10,
+                        "order": {"_count": "desc"}
+                    }
+                },
+                "user_counts": {
+                    "terms": {
+                        "field": "data.win.eventdata.user",
+                        "size": 10,
+                        "order": {"_count": "desc"}
+                    }
+                },
+                "integrity_level_counts": {
+                    "terms": {
+                        "field": "data.win.eventdata.integrityLevel",
+                        "size": 5,
+                        "order": {"_count": "desc"}
+                    }
+                },
+                "mitre_technique_counts": {
+                    "terms": {
+                        "field": "rule.mitre.id",
                         "size": 10,
                         "order": {"_count": "desc"}
                     }
@@ -181,7 +238,40 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "agent_name": bucket["key"],
                 "count": bucket["doc_count"]
             })
-        
+
+        # Process top processes
+        top_processes = []
+        for bucket in response["aggregations"]["process_counts"]["buckets"]:
+            if bucket["key"]:  # Skip empty process names
+                top_processes.append({
+                    "process_name": bucket["key"],
+                    "count": bucket["doc_count"]
+                })
+
+        # Process top users
+        top_users = []
+        for bucket in response["aggregations"]["user_counts"]["buckets"]:
+            if bucket["key"]:  # Skip empty usernames
+                top_users.append({
+                    "username": bucket["key"],
+                    "count": bucket["doc_count"]
+                })
+
+        # Process integrity level breakdown
+        integrity_level_breakdown = {}
+        for bucket in response["aggregations"]["integrity_level_counts"]["buckets"]:
+            if bucket["key"]:  # Skip empty integrity levels
+                integrity_level_breakdown[bucket["key"]] = bucket["doc_count"]
+
+        # Process MITRE technique breakdown
+        mitre_techniques = []
+        for bucket in response["aggregations"]["mitre_technique_counts"]["buckets"]:
+            if bucket["key"]:  # Skip empty techniques
+                mitre_techniques.append({
+                    "technique_id": bucket["key"],
+                    "count": bucket["doc_count"]
+                })
+
         result = {
             "total_count": total_alerts,
             "time_range": time_range,
@@ -189,6 +279,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             "top_rules": top_rules,
             "hourly_distribution": hourly_distribution,
             "top_agents": top_agents,
+            "top_processes": top_processes,
+            "top_users": top_users,
+            "integrity_level_breakdown": integrity_level_breakdown,
+            "mitre_techniques": mitre_techniques,
             "query_info": {
                 "filters_applied": bool(filters),
                 "filters": filters

@@ -41,7 +41,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             "query": {
                 "bool": {
                     "must": [
-                        opensearch_client.build_time_range_filter(time_range),
+                        opensearch_client.build_single_time_filter(time_range),
                         entity_query
                     ]
                 }
@@ -108,7 +108,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 },
                 "process_activity": {
                     "terms": {
-                        "field": "data.process.name",
+                        "field": "data.win.eventdata.originalFileName",
                         "size": 10
                     },
                     "aggs": {

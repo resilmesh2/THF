@@ -113,8 +113,8 @@ async def query_agent(request: QueryRequest):
                    query=request.query[:100],  # Log first 100 chars
                    session_id=request.session_id)
         
-        # Process query with agent
-        response = await agent.query(request.query)
+        # Process query with agent including session context
+        response = await agent.query(request.query, request.session_id)
         
         logger.info("Query processed successfully", 
                    session_id=request.session_id,
@@ -141,13 +141,43 @@ async def reset_session(session_id: str = "default"):
         raise HTTPException(status_code=503, detail="Agent not initialized")
     
     try:
-        await agent.reset_memory()
+        await agent.reset_memory(session_id)
         logger.info("Session reset successfully", session_id=session_id)
         return {"message": "Session reset successfully", "session_id": session_id}
         
     except Exception as e:
         logger.error("Session reset failed", error=str(e), session_id=session_id)
         raise HTTPException(status_code=500, detail=f"Session reset failed: {str(e)}")
+
+@app.get("/session/{session_id}")
+async def get_session_info(session_id: str):
+    """Get information about a specific session"""
+    global agent
+
+    if not agent:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+
+    try:
+        session_info = agent.get_session_info(session_id)
+        return session_info
+    except Exception as e:
+        logger.error("Failed to get session info", error=str(e), session_id=session_id)
+        raise HTTPException(status_code=500, detail=f"Failed to get session info: {str(e)}")
+
+@app.get("/sessions")
+async def get_all_sessions():
+    """Get information about all active sessions"""
+    global agent
+
+    if not agent:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+
+    try:
+        sessions_info = agent.get_session_info()
+        return sessions_info
+    except Exception as e:
+        logger.error("Failed to get sessions info", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get sessions info: {str(e)}")
 
 @app.get("/health")
 async def health_check():

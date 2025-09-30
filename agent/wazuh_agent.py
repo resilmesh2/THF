@@ -2,15 +2,18 @@
 Wazuh Security Agent using LangChain
 """
 from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationSummaryBufferMemory
 from langchain.callbacks import LangChainTracer
 from langchain_anthropic import ChatAnthropic
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 import structlog
 import os
+import asyncio
+from collections import defaultdict
 
 from functions._shared.opensearch_client import WazuhOpenSearchClient
 from tools.wazuh_tools import get_all_tools
+from .context_processor import ConversationContextProcessor
 
 logger = structlog.get_logger()
 
@@ -38,18 +41,22 @@ class WazuhSecurityAgent:
             model="claude-sonnet-4-20250514",
             temperature=0.1,
             anthropic_api_key=anthropic_api_key,
-            max_tokens=4000
+            max_tokens=3000,  # Reduced to help prevent API overload
+            timeout=30  # Add timeout for overload handling
         )
         
         # Initialize tools
-        self.tools = get_all_tools(self.opensearch_client)
+        self.tools = get_all_tools(self.opensearch_client, self)
         
-        # Initialize memory
-        self.memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            output_key="output"
-        )
+        # Initialize session-based memory storage
+        self.session_memories = defaultdict(lambda: self._create_session_memory())
+        self.current_session_id = None
+
+        # Initialize default memory for backwards compatibility
+        self.memory = self._create_session_memory()
+
+        # Initialize context processor
+        self.context_processor = ConversationContextProcessor()
         
         # Initialize callbacks
         callbacks = []
@@ -68,17 +75,17 @@ class WazuhSecurityAgent:
             agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
-            max_iterations=5,  # Increase iterations
-            early_stopping_method="force",  # Change to force
+            max_iterations=3,  # Reduced to save API calls
+            early_stopping_method="generate",  # Generate response instead of force stopping
             callbacks=callbacks,
-            handle_parsing_errors="Check your output and make sure it conforms to the expected format! Continue with the task."
+            handle_parsing_errors=True
         )
         
-        # System prompt for security context
+        # Enhanced system prompt with context preservation instructions
         self.system_prompt = """
-        You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents, 
+        You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents,
         analyze alerts, and understand their security posture.
-        
+
         Key guidelines:
         - Always use the appropriate tools for data retrieval
         - Provide actionable security insights
@@ -88,7 +95,7 @@ class WazuhSecurityAgent:
         - Maintain security context in all responses
         - Focus on the most important security information
         - If a tool returns placeholder data, acknowledge it's not yet implemented
-        
+
         Available tools cover:
         - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
         - Alert analysis and statistics across multiple alerts (analyze_alerts)
@@ -98,55 +105,225 @@ class WazuhSecurityAgent:
         - Timeline reconstruction (trace_timeline)
         - Vulnerability checking (check_vulnerabilities)
         - Agent monitoring (monitor_agents)
-        
+
         Always provide context about what the data means from a security perspective.
+
+        Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity.
         """
         
-        logger.info("Wazuh Security Agent initialized", 
+        logger.info("Wazuh Security Agent initialized",
                    tools_count=len(self.tools),
                    model="claude-4-sonnet")
-    
-    async def query(self, user_input: str) -> str:
+
+    def _create_session_memory(self):
+        """Create a new memory instance for a session"""
+        # Use ConversationSummaryBufferMemory for better context management
+        return ConversationSummaryBufferMemory(
+            llm=self.llm,
+            max_token_limit=1500,  # Reduced to prevent API overload
+            memory_key="chat_history",
+            return_messages=True,
+            output_key="output"
+        )
+
+    def _get_session_memory(self, session_id: str):
+        """Get or create memory for a specific session"""
+        if session_id not in self.session_memories:
+            logger.info("Creating new session memory", session_id=session_id)
+        return self.session_memories[session_id]
+
+    def _update_agent_memory(self, session_id: str):
+        """Update the agent's memory to use the session-specific memory"""
+        if self.current_session_id != session_id:
+            self.current_session_id = session_id
+            session_memory = self._get_session_memory(session_id)
+
+            # Re-initialize agent with session-specific memory
+            callbacks = []
+            try:
+                if os.getenv("LANGCHAIN_TRACING_V2") == "true" and os.getenv("LANGCHAIN_API_KEY"):
+                    callbacks.append(LangChainTracer())
+            except Exception as e:
+                logger.warning("Failed to initialize LangSmith tracing", error=str(e))
+
+            self.agent = initialize_agent(
+                tools=self.tools,
+                llm=self.llm,
+                agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+                memory=session_memory,
+                verbose=True,
+                max_iterations=5,
+                early_stopping_method="force",
+                callbacks=callbacks,
+                handle_parsing_errors=True
+            )
+
+            logger.info("Agent memory updated for session", session_id=session_id)
+
+    async def query(self, user_input: str, session_id: str = "default") -> str:
         """
-        Process user query and return response
-        
+        Process user query and return response with session-based context
+
         Args:
             user_input: User's natural language query
-            
+            session_id: Unique session identifier for conversation context
+
         Returns:
             Agent's response
         """
         try:
-            # Add system context to query
-            full_prompt = f"{self.system_prompt}\n\nUser query: {user_input}"
-            
-            logger.info("Processing agent query", 
-                       query_preview=user_input[:100])
-            
-            # Execute agent
-            response = await self.agent.arun(full_prompt)
-            
-            logger.info("Agent query completed", 
+            # Update agent memory for this session
+            self._update_agent_memory(session_id)
+
+            # Get conversation history for context analysis
+            session_memory = self._get_session_memory(session_id)
+            chat_history = session_memory.chat_memory.messages if hasattr(session_memory, 'chat_memory') else []
+
+            # Process context separately from LLM prompt
+            context_result = self.context_processor.process_query_with_context(user_input, chat_history)
+
+            logger.info("Processing agent query with session context",
                        query_preview=user_input[:100],
+                       session_id=session_id,
+                       history_length=len(chat_history),
+                       context_applied=context_result["context_applied"],
+                       reasoning=context_result["reasoning"])
+
+            # Create enriched input with context for LLM when context is applied
+            enriched_input = user_input
+            if context_result["context_applied"]:
+                enriched_input = self._create_context_enriched_input(user_input, context_result)
+
+            # Execute agent with context-aware input
+            response = await self._execute_with_retry(enriched_input, context_result)
+
+            logger.info("Agent query completed with context",
+                       query_preview=user_input[:100],
+                       session_id=session_id,
                        response_length=len(response))
-            
+
             return response
-            
+
         except Exception as e:
-            logger.error("Agent query failed", 
-                        error=str(e), 
-                        query_preview=user_input[:100])
+            logger.error("Agent query failed",
+                        error=str(e),
+                        query_preview=user_input[:100],
+                        session_id=session_id)
             return f"I encountered an error processing your request: {str(e)}"
-    
-    async def reset_memory(self):
-        """Reset conversation memory"""
+
+    async def _execute_with_retry(self, user_input: str, context_result: Dict[str, Any], max_retries: int = 2) -> str:
+        """Execute agent with retry logic for API overload"""
+        # Store context result for tool execution
+        self._current_context_result = context_result
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = await self.agent.arun(user_input)
+                return response
+            except Exception as e:
+                error_str = str(e)
+                if "overloaded" in error_str.lower() or "529" in error_str:
+                    if attempt < max_retries:
+                        wait_time = (2 ** attempt) * 2  # Exponential backoff: 2s, 4s
+                        logger.warning(f"API overloaded, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries + 1})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        return "I apologize, but the system is currently experiencing high load. Please try your query again in a few moments, or try a more specific question to reduce processing requirements."
+                else:
+                    # Non-overload error, don't retry
+                    raise e
+
+        return "Unable to process request due to system overload."
+
+    def _create_context_enriched_input(self, user_input: str, context_result: Dict[str, Any]) -> str:
+        """
+        Create enriched input that includes context information for the LLM
+
+        Args:
+            user_input: Original user input
+            context_result: Result from context processor
+
+        Returns:
+            Enriched input with context guidance
+        """
+        suggested_filters = context_result.get("suggested_filters", {})
+        suggested_time_range = context_result.get("suggested_time_range")
+
+        # Build context hints
+        context_parts = []
+
+        if "host" in suggested_filters:
+            context_parts.append(f'host {suggested_filters["host"]} (use "host": "{suggested_filters["host"]}")')
+
+        if suggested_time_range:
+            context_parts.append(f"timeframe {suggested_time_range}")
+
+        if "rule.level" in suggested_filters:
+            level_filter = suggested_filters["rule.level"]
+            if isinstance(level_filter, dict) and "gte" in level_filter:
+                if level_filter["gte"] == 12:
+                    context_parts.append('critical alerts (use "rule.level": {"gte": 12})')
+                elif level_filter["gte"] == 8:
+                    context_parts.append('high severity alerts (use "rule.level": {"gte": 8})')
+
+        if "rule.groups" in suggested_filters:
+            groups = suggested_filters["rule.groups"]
+            if isinstance(groups, list):
+                context_parts.append(f"rule groups {', '.join(groups)}")
+
+        # Create enriched input
+        if context_parts:
+            context_hint = f"[Context from previous query: {', '.join(context_parts)}] "
+            enriched_input = context_hint + user_input
+
+            logger.info("Created context-enriched input",
+                       original=user_input,
+                       context_parts=context_parts,
+                       enriched_preview=enriched_input[:150])
+
+            return enriched_input
+
+        return user_input
+
+    async def reset_memory(self, session_id: str = None):
+        """Reset conversation memory for a session or all sessions"""
         try:
-            self.memory.clear()
-            logger.info("Agent memory reset")
+            if session_id:
+                # Reset specific session
+                if session_id in self.session_memories:
+                    self.session_memories[session_id].clear()
+                    logger.info("Session memory reset", session_id=session_id)
+                else:
+                    logger.info("Session not found for reset", session_id=session_id)
+            else:
+                # Reset all sessions
+                self.session_memories.clear()
+                self.current_session_id = None
+                self.memory.clear()
+                logger.info("All session memories reset")
         except Exception as e:
-            logger.error("Failed to reset memory", error=str(e))
+            logger.error("Failed to reset memory", error=str(e), session_id=session_id)
             raise
-    
+
+    def get_session_info(self, session_id: str = None) -> dict:
+        """Get information about active sessions"""
+        if session_id:
+            session_memory = self.session_memories.get(session_id)
+            if session_memory and hasattr(session_memory, 'chat_memory'):
+                return {
+                    "session_id": session_id,
+                    "message_count": len(session_memory.chat_memory.messages),
+                    "exists": True
+                }
+            return {"session_id": session_id, "exists": False}
+        else:
+            return {
+                "total_sessions": len(self.session_memories),
+                "active_sessions": list(self.session_memories.keys()),
+                "current_session": self.current_session_id
+            }
+
     async def test_connection(self) -> bool:
         """
         Test connection to OpenSearch
@@ -203,6 +380,7 @@ class WazuhSecurityAgent:
             "tool_names": [tool.name for tool in self.tools],
             "opensearch_host": self.opensearch_config.get("host"),
             "opensearch_port": self.opensearch_config.get("port"),
-            "memory_type": "ConversationBufferMemory",
+            "memory_type": "ConversationSummaryBufferMemory (Session-based)",
+            "active_sessions": len(self.session_memories),
             "agent_type": "Structured Chat Zero Shot React Description"
         }

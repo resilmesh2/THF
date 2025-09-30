@@ -1,14 +1,59 @@
 """
 OpenSearch client for Wazuh SIEM integration
 """
-from opensearchpy import OpenSearch, AsyncOpenSearch, RequestsHttpConnection
-from typing import Dict, Any, Optional, List
+from opensearchpy import AsyncOpenSearch
+from typing import Dict, Any, List
 import structlog
-from datetime import datetime, timedelta
-import re
-import asyncio
 
 logger = structlog.get_logger()
+
+def normalize_wazuh_array_fields(filters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert string values to arrays for known Wazuh array fields
+
+    Args:
+        filters: Original filters dictionary
+
+    Returns:
+        Normalized filters with array values for array fields
+    """
+    if not filters:
+        return filters
+
+    # Known Wazuh array fields that require arrays instead of strings
+    wazuh_array_fields = {
+        # Rule groups
+        "rule.groups", "rule_groups", "rule_group", "groups", "group",
+
+        # MITRE ATT&CK fields
+        "rule.mitre.technique", "rule.mitre.id", "rule.mitre.tactic",
+        "mitre.technique", "mitre.id", "mitre.tactic",
+        "technique", "tactic", "mitre_technique", "mitre_id", "mitre_tactic",
+
+        # Agent groups (if applicable)
+        "agent.groups", "agent_groups",
+
+        # Decoder fields that might be arrays
+        "decoder.name", "decoder_name",
+
+        # Location fields that might be arrays
+        "location", "locations"
+    }
+
+    normalized_filters = {}
+    for field, value in filters.items():
+        if field in wazuh_array_fields and isinstance(value, str):
+            # Convert string to single-element array
+            normalized_filters[field] = [value]
+            logger.debug("Normalized Wazuh array field",
+                        field=field,
+                        original_value=value,
+                        normalized_value=[value])
+        else:
+            # Keep as-is
+            normalized_filters[field] = value
+
+    return normalized_filters
 
 class WazuhOpenSearchClient:
     """OpenSearch client specifically configured for Wazuh SIEM"""
@@ -140,103 +185,42 @@ class WazuhOpenSearchClient:
             logger.error("Failed to get indices", error=str(e))
             raise
 
-    def build_time_range_filter(self, time_range: str) -> Dict[str, Any]:
+    def build_single_time_filter(self, time_range: str) -> Dict[str, Any]:
         """
-        Convert time range string to OpenSearch query filter
-        
+        Convert single time range string to OpenSearch query filter.
+        Delegates to the centralized time_parser for consistent parsing.
+
         Args:
-            time_range: Time range string (e.g., "7d", "24h", "30m", "2025-07-24T06:00:00 to 2025-07-24T09:00:00")
-            
+            time_range: Time range string including:
+                - Simple: "7d", "24h", "30m"
+                - Natural: "three hours ago", "yesterday", "last night"
+                - Absolute ranges: "6am to 11am", "today 06:00-09:00"
+
         Returns:
             OpenSearch time range filter
         """
         try:
-            # Handle absolute time ranges with various formats
+            from .time_parser import build_single_time_range_filter, build_time_range_filter
+
+            # Handle absolute time ranges (containing separators)
             if any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
-                from datetime import datetime, date
-                today = date.today().strftime("%Y-%m-%d")
-                
-                # Handle format: "today 06:00-09:00"
-                if "today" in time_range.lower() and "-" in time_range:
-                    # Extract the time part after "today"
-                    time_part = time_range.lower().replace("today", "").strip()
-                    if "-" in time_part:
-                        parts = time_part.split("-")
+                # Parse as start-end range
+                separators = [" to ", " until ", "-"]
+                for sep in separators:
+                    if sep in time_range.lower():
+                        parts = time_range.split(sep)
                         if len(parts) == 2:
-                            start_time = self._parse_time_expression(parts[0].strip(), today)
-                            end_time = self._parse_time_expression(parts[1].strip(), today)
-                            
-                            logger.info("Parsed today time range with dash", 
-                                       original_range=time_range,
-                                       start_time=start_time, 
-                                       end_time=end_time)
-                            
-                            return {
-                                "range": {
-                                    "@timestamp": {
-                                        "gte": start_time,
-                                        "lte": end_time
-                                    }
-                                }
-                            }
-                
-                # Handle format: "time to time" or "time until time"
-                elif " to " in time_range.lower() or " until " in time_range.lower():
-                    separator = " to " if " to " in time_range.lower() else " until "
-                    parts = time_range.split(separator)
-                    if len(parts) == 2:
-                        start_time = parts[0].strip()
-                        end_time = parts[1].strip()
-                        
-                        # Convert time expressions to ISO format
-                        start_time = self._parse_time_expression(start_time, today)
-                        end_time = self._parse_time_expression(end_time, today)
-                        
-                        logger.info("Parsed absolute time range", 
-                                   original_range=time_range,
-                                   start_time=start_time, 
-                                   end_time=end_time)
-                        
-                        return {
-                            "range": {
-                                "@timestamp": {
-                                    "gte": start_time,
-                                    "lte": end_time
-                                }
-                            }
-                        }
-            
-            # Handle relative time ranges
-            elif time_range.endswith('d'):
-                days = int(time_range[:-1])
-                gte = f"now-{days}d"
-            elif time_range.endswith('h'):
-                hours = int(time_range[:-1])
-                gte = f"now-{hours}h"
-            elif time_range.endswith('m'):
-                minutes = int(time_range[:-1])
-                gte = f"now-{minutes}m"
-            elif time_range.endswith('s'):
-                seconds = int(time_range[:-1])
-                gte = f"now-{seconds}s"
-            else:
-                # Default to 24 hours if format not recognized
-                gte = "now-24h"
-                logger.warning("Unrecognized time range format, using default", 
-                             time_range=time_range, default="24h")
-                
-            return {
-                "range": {
-                    "@timestamp": {
-                        "gte": gte,
-                        "lte": "now"
-                    }
-                }
-            }
-            
-        except ValueError as e:
-            logger.error("Invalid time range format", 
-                        time_range=time_range, 
+                            start_time = parts[0].strip()
+                            end_time = parts[1].strip()
+                            return build_time_range_filter(start_time, end_time)
+                        break
+
+            # Handle single time expressions (relative times)
+            return build_single_time_range_filter(time_range)
+
+        except Exception as e:
+            logger.error("Invalid time range format",
+                        time_range=time_range,
                         error=str(e))
             # Return default 24h range
             return {
@@ -294,6 +278,38 @@ class WazuhOpenSearchClient:
                       time_expr=time_expr)
         return f"{date_str}T{time_expr}"
 
+    def _is_wazuh_array_field(self, field: str) -> bool:
+        """
+        Check if a field is a known Wazuh array field that requires terms query
+
+        Args:
+            field: Field name to check
+
+        Returns:
+            True if field is a known array field, False otherwise
+        """
+        # Known Wazuh array fields that require terms query instead of term
+        wazuh_array_fields = {
+            # Rule groups
+            "rule.groups", "rule_groups", "rule_group", "groups", "group",
+
+            # MITRE ATT&CK fields
+            "rule.mitre.technique", "rule.mitre.id", "rule.mitre.tactic",
+            "mitre.technique", "mitre.id", "mitre.tactic",
+            "technique", "tactic", "mitre_technique", "mitre_id", "mitre_tactic",
+
+            # Agent groups (if applicable)
+            "agent.groups", "agent_groups",
+
+            # Decoder fields that might be arrays
+            "decoder.name", "decoder_name",
+
+            # Location fields that might be arrays
+            "location", "locations"
+        }
+
+        return field in wazuh_array_fields
+
     def build_filters_query(self, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Convert filters dict to OpenSearch query filters with intelligent field detection
@@ -307,27 +323,85 @@ class WazuhOpenSearchClient:
         query_filters = []
         
         for field, value in filters.items():
-            # Handle special process filtering with intelligent field detection
-            if field in ["process", "process_name", "executable", "image", "command", "cmd", "binary"] and isinstance(value, str):
-                # Use the same logic as build_entity_query for process names
+            # Handle timestamp range strings (e.g., "2024-01-01T10:00:00Z to 2024-01-01T11:00:00Z")
+            if field in ["timestamp", "@timestamp"] and isinstance(value, str):
+                range_separators = [" to ", " until ", " - "]
+                range_parsed = False
+
+                for separator in range_separators:
+                    if separator in value:
+                        try:
+                            # Parse timestamp range string
+                            parts = value.split(separator)
+                            if len(parts) == 2:
+                                start_time = parts[0].strip()
+                                end_time = parts[1].strip()
+
+                                # Convert to proper OpenSearch range filter
+                                query_filters.append({
+                                    "range": {
+                                        "@timestamp": {
+                                            "gte": start_time,
+                                            "lte": end_time
+                                        }
+                                    }
+                                })
+                                logger.info("Converted timestamp range filter",
+                                           original=value, separator=separator,
+                                           start=start_time, end=end_time)
+                                range_parsed = True
+                                break
+                        except Exception as e:
+                            logger.warning("Failed to parse timestamp range with separator",
+                                         field=field, value=value, separator=separator, error=str(e))
+                            continue
+
+                if range_parsed:
+                    continue
+
+            # Enhanced process filtering with comprehensive field coverage
+            if field in ["process", "process_name", "process_image", "executable", "image", "command", "cmd", "binary"] and isinstance(value, str):
+                # Handle different process query patterns
                 if ('\\' in value or '/' in value):
-                    # Likely executable path
+                    # Full executable path - use exact wildcard matching on image field
                     query_filters.append({
                         "wildcard": {"data.win.eventdata.image": f"*{value}*"}
                     })
                 else:
-                    # Process name - search across multiple Windows event fields
-                    query_filters.append({
-                        "bool": {
-                            "should": [
-                                {"wildcard": {"data.win.eventdata.image": f"*{value}*"}},
-                                {"wildcard": {"data.win.eventdata.originalFileName": f"*{value}*"}},
-                                {"wildcard": {"data.win.eventdata.commandLine": f"*{value}*"}},
-                                {"wildcard": {"rule.description": f"*{value}*"}}
-                            ],
-                            "minimum_should_match": 1
-                        }
-                    })
+                    # Process name only - comprehensive multi-field search with priority ordering
+                    process_searches = []
+
+                    # Priority 1: Exact process name matches (highest priority)
+                    if value.endswith('.exe'):
+                        process_searches.extend([
+                            {"term": {"data.win.eventdata.originalFileName": value}},
+                            {"wildcard": {"data.win.eventdata.image": f"*{value}"}}
+                        ])
+
+                    # Priority 2: Original filename and image path wildcards
+                    process_searches.extend([
+                        {"wildcard": {"data.win.eventdata.originalFileName": f"*{value}*"}},
+                        {"wildcard": {"data.win.eventdata.image": f"*{value}*"}}
+                    ])
+
+                    # Priority 3: Command line and rule description (broader search)
+                    process_searches.extend([
+                        {"wildcard": {"data.win.eventdata.commandLine": f"*{value}*"}},
+                        {"wildcard": {"rule.description": f"*{value}*"}}
+                    ])
+
+                    # Only add if we have a substantial process name (avoid noise)
+                    if len(value) >= 3:
+                        query_filters.append({
+                            "bool": {
+                                "should": process_searches,
+                                "minimum_should_match": 1
+                            }
+                        })
+                        logger.info("Enhanced process filter applied",
+                                   process=value, search_fields=len(process_searches))
+                    else:
+                        logger.warning("Process name too short for filtering", process=value)
             # Handle host filtering with intelligent field detection
             elif field in ["host", "host_id", "agent", "agent_id", "hostname", "agent_name"] and isinstance(value, str):
                 import re
@@ -423,8 +497,17 @@ class WazuhOpenSearchClient:
                     query_filters.append({"range": {"rule.level": {"gte": level_value}}})
                 else:
                     query_filters.append({"term": {"rule.level": level_value}})
-            elif field in ["rule_group", "rule_groups", "group", "groups"] and isinstance(value, str):
-                query_filters.append({"term": {"rule.groups": value}})
+            # Handle all known Wazuh array fields - use terms query for proper array matching
+            elif self._is_wazuh_array_field(field):
+                if isinstance(value, str):
+                    # Single value - use terms query to match any element in the array
+                    query_filters.append({"terms": {field: [value]}})
+                elif isinstance(value, list):
+                    # Multiple values - use terms query with all values
+                    query_filters.append({"terms": {field: value}})
+                else:
+                    # Fallback for other types
+                    query_filters.append({"terms": {field: [str(value)]}})
             # Standard filtering logic for other fields
             elif isinstance(value, list):
                 # Multiple values - use terms query
@@ -443,9 +526,10 @@ class WazuhOpenSearchClient:
                         "term": {field: value}
                     })
             elif isinstance(value, dict):
-                # Range or other complex query
+                # Range or other complex query - convert MongoDB-style operators to OpenSearch
+                opensearch_dict = self._convert_mongodb_operators(value)
                 query_filters.append({
-                    "range": {field: value}
+                    "range": {field: opensearch_dict}
                 })
             else:
                 # Simple term query
@@ -454,6 +538,36 @@ class WazuhOpenSearchClient:
                 })
         
         return query_filters
+
+    def _convert_mongodb_operators(self, value_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert MongoDB-style operators to OpenSearch-compatible operators.
+
+        Args:
+            value_dict: Dictionary that may contain MongoDB operators
+
+        Returns:
+            Dictionary with OpenSearch-compatible operators
+        """
+        mongodb_to_opensearch = {
+            '$gte': 'gte',
+            '$gt': 'gt',
+            '$lte': 'lte',
+            '$lt': 'lt',
+            '$ne': 'ne'
+        }
+
+        converted = {}
+        for key, value in value_dict.items():
+            # Convert MongoDB operators to OpenSearch operators
+            opensearch_key = mongodb_to_opensearch.get(key, key)
+            converted[opensearch_key] = value
+
+        logger.debug("Converted MongoDB operators to OpenSearch",
+                    original=value_dict,
+                    converted=converted)
+
+        return converted
 
     def build_aggregation_query(self, agg_type: str, field: str, size: int = 10) -> Dict[str, Any]:
         """
