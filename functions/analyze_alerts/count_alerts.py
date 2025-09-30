@@ -17,6 +17,7 @@ def get_field_mapping() -> Dict[str, str]:
         "rules": "rule.id",
         "rule_id": "rule.id",
         "rule_description": "rule.description",
+        "description": "rule.description",  # Add missing mapping
         "user": "data.win.eventdata.user",
         "users": "data.win.eventdata.user",
         "target_user": "data.win.eventdata.targetUserName",

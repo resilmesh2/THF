@@ -359,27 +359,49 @@ class WazuhOpenSearchClient:
                 if range_parsed:
                     continue
 
-            # Handle special process filtering with intelligent field detection
-            if field in ["process", "process_name", "executable", "image", "command", "cmd", "binary"] and isinstance(value, str):
-                # Use the same logic as build_entity_query for process names
+            # Enhanced process filtering with comprehensive field coverage
+            if field in ["process", "process_name", "process_image", "executable", "image", "command", "cmd", "binary"] and isinstance(value, str):
+                # Handle different process query patterns
                 if ('\\' in value or '/' in value):
-                    # Likely executable path
+                    # Full executable path - use exact wildcard matching on image field
                     query_filters.append({
                         "wildcard": {"data.win.eventdata.image": f"*{value}*"}
                     })
                 else:
-                    # Process name - search across multiple Windows event fields
-                    query_filters.append({
-                        "bool": {
-                            "should": [
-                                {"wildcard": {"data.win.eventdata.image": f"*{value}*"}},
-                                {"wildcard": {"data.win.eventdata.originalFileName": f"*{value}*"}},
-                                {"wildcard": {"data.win.eventdata.commandLine": f"*{value}*"}},
-                                {"wildcard": {"rule.description": f"*{value}*"}}
-                            ],
-                            "minimum_should_match": 1
-                        }
-                    })
+                    # Process name only - comprehensive multi-field search with priority ordering
+                    process_searches = []
+
+                    # Priority 1: Exact process name matches (highest priority)
+                    if value.endswith('.exe'):
+                        process_searches.extend([
+                            {"term": {"data.win.eventdata.originalFileName": value}},
+                            {"wildcard": {"data.win.eventdata.image": f"*{value}"}}
+                        ])
+
+                    # Priority 2: Original filename and image path wildcards
+                    process_searches.extend([
+                        {"wildcard": {"data.win.eventdata.originalFileName": f"*{value}*"}},
+                        {"wildcard": {"data.win.eventdata.image": f"*{value}*"}}
+                    ])
+
+                    # Priority 3: Command line and rule description (broader search)
+                    process_searches.extend([
+                        {"wildcard": {"data.win.eventdata.commandLine": f"*{value}*"}},
+                        {"wildcard": {"rule.description": f"*{value}*"}}
+                    ])
+
+                    # Only add if we have a substantial process name (avoid noise)
+                    if len(value) >= 3:
+                        query_filters.append({
+                            "bool": {
+                                "should": process_searches,
+                                "minimum_should_match": 1
+                            }
+                        })
+                        logger.info("Enhanced process filter applied",
+                                   process=value, search_fields=len(process_searches))
+                    else:
+                        logger.warning("Process name too short for filtering", process=value)
             # Handle host filtering with intelligent field detection
             elif field in ["host", "host_id", "agent", "agent_id", "hostname", "agent_name"] and isinstance(value, str):
                 import re

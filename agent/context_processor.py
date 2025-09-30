@@ -52,6 +52,64 @@ class ConversationContextProcessor:
             "query_actions": []
         }
 
+    def _detect_contextual_reference(self, user_input: str, chat_history: List) -> bool:
+        """
+        Enhanced contextual reference detection using multiple strategies.
+
+        Args:
+            user_input: User's query
+            chat_history: Previous conversation messages
+
+        Returns:
+            Boolean indicating if query has contextual reference
+        """
+        user_input_lower = user_input.lower()
+
+        # Strategy 1: Explicit contextual keywords
+        if any(keyword in user_input_lower for keyword in self.contextual_keywords):
+            return True
+
+        # Strategy 2: Numerical references to specific counts mentioned in previous responses
+        if chat_history:
+            # Extract numbers from user query
+            user_numbers = set(re.findall(r'\b(\d+)\b', user_input))
+
+            # Look for these numbers in recent LLM responses
+            for message in chat_history[-3:]:  # Check last 3 messages
+                if hasattr(message, 'content') and self._is_llm_response(message.content):
+                    message_numbers = set(re.findall(r'\b(\d+)\b', message.content))
+                    # If user mentions a specific number that was in the LLM response
+                    if user_numbers.intersection(message_numbers):
+                        return True
+
+        # Strategy 3: Definite article patterns with specific entities
+        definite_patterns = [
+            r'\bthe\s+(\d+)\s+(alerts?|events?|processes?|hosts?)',  # "the 26 alerts"
+            r'\bthe\s+(alerts?|events?)\s+(caused|triggered|from)',    # "the alerts caused by"
+            r'\bthe\s+(critical|high|medium|low)\s+(alerts?|events?)', # "the critical alerts"
+        ]
+
+        for pattern in definite_patterns:
+            if re.search(pattern, user_input_lower):
+                return True
+
+        # Strategy 4: Entity references from previous context
+        if chat_history:
+            # Extract entity names from previous responses and check if referenced
+            for message in chat_history[-2:]:  # Check last 2 messages
+                if hasattr(message, 'content'):
+                    content = message.content.lower()
+                    # Look for specific process names, hosts, etc mentioned in previous responses
+                    processes = re.findall(r'\b([a-zA-Z0-9_.-]+\.exe)\b', content)
+                    hosts = re.findall(r'\bhost\s+([a-zA-Z0-9][a-zA-Z0-9_.-]*)', content)
+
+                    # Check if any of these entities are mentioned in the user query
+                    for entity in processes + hosts:
+                        if entity.lower() in user_input_lower:
+                            return True
+
+        return False
+
     def process_query_with_context(self, user_input: str, chat_history: List) -> Dict[str, Any]:
         """
         Process user query and return enriched parameters based on context.
@@ -78,10 +136,8 @@ class ConversationContextProcessor:
             "reasoning": ""
         }
 
-        # Step 1: Check for contextual references
-        has_contextual_reference = any(
-            keyword in user_input.lower() for keyword in self.contextual_keywords
-        )
+        # Step 1: Check for contextual references (enhanced detection)
+        has_contextual_reference = self._detect_contextual_reference(user_input, chat_history)
         result["has_contextual_reference"] = has_contextual_reference
 
         # Step 2: Check for explicit new parameters (exclude contextual references)

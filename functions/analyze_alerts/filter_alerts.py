@@ -17,6 +17,7 @@ def get_field_mapping() -> Dict[str, str]:
         "rules": "rule.id",
         "rule_id": "rule.id",
         "rule_description": "rule.description",
+        "description": "rule.description",  # Add missing mapping
         "user": "data.win.eventdata.user",
         "users": "data.win.eventdata.user",
         "target_user": "data.win.eventdata.targetUserName",
@@ -68,11 +69,11 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         time_range = params.get("time_range", "7d")
         filters = params.get("filters", {})
         limit = params.get("limit", 50)
-        
-        # Handle case where filters is None
+
+        # Handle case where filters is None FIRST
         if filters is None:
             filters = {}
-        
+
         # Handle separate time_start and time_end parameters from LLM
         time_start = filters.pop("time_start", None)
         time_end = filters.pop("time_end", None)
@@ -111,6 +112,65 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             mapped_filters[mapped_key] = value
         filters = mapped_filters
 
+        # ENHANCED PROCESS DETECTION - Handle process queries dynamically across multiple fields
+        process_search_terms = []
+
+        # Collect all potential process-related search terms
+        for key, value in list(filters.items()):
+            if isinstance(value, str):
+                # Detect process-related searches in any field
+                if any(keyword in key.lower() for keyword in ['process', 'executable', 'image', 'command']):
+                    process_search_terms.append(value)
+                # Also detect rule searches that might be process names
+                elif key in ['rule.id', 'rule.description'] and not value.isdigit():
+                    # Check if it looks like a process name
+                    if any(proc in value.lower() for proc in ['powershell', 'chrome', 'cmd', 'notepad', 'explorer', 'svchost', 'winlogon', '.exe']):
+                        process_search_terms.append(value)
+                        # Remove from rule search since we'll handle it as process
+                        del filters[key]
+                        logger.info("Detected process name in rule field, converting to process search",
+                                   original_field=key, process_term=value)
+
+        # If we found process terms, create comprehensive process search
+        if process_search_terms:
+            logger.info("Detected process search terms", terms=process_search_terms)
+
+            # Remove existing process filters to replace with comprehensive search
+            process_fields = ["data.win.eventdata.originalFileName", "data.win.eventdata.image"]
+            for field in process_fields:
+                if field in filters:
+                    del filters[field]
+
+            # Create dynamic process filter that searches across multiple process fields
+            for search_term in process_search_terms:
+                # Normalize the search term
+                normalized_term = search_term.lower().strip()
+
+                # Auto-append .exe if not present and not a full path
+                if not normalized_term.endswith('.exe') and '\\' not in normalized_term and '/' not in normalized_term:
+                    exe_term = normalized_term + '.exe'
+                else:
+                    exe_term = normalized_term
+
+                logger.info("Creating comprehensive process search",
+                           original=search_term, normalized=exe_term)
+
+                # Add both normalized term and .exe version to search multiple process fields
+                # This creates an OR condition across process fields
+                filters["data.win.eventdata.originalFileName"] = exe_term
+                break  # Use first term for primary search
+
+        # Handle intelligent rule filtering - redirect remaining text searches to rule.description
+        if "rule.id" in filters and isinstance(filters["rule.id"], str):
+            rule_value = filters["rule.id"]
+            # If rule value is not numeric, likely searching for rule content
+            if not rule_value.isdigit():
+                # Move to rule.description for text-based searches
+                filters["rule.description"] = rule_value
+                del filters["rule.id"]
+                logger.info("Redirected text rule search to description",
+                           search_term=rule_value)
+
         # Handle severity name to level conversion
         severity_filter = None
         if "rule.level" in filters:
@@ -131,7 +191,8 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         logger.info("Filtering alerts",
                    time_range=time_range,
                    filters=filters,
-                   limit=limit)
+                   limit=limit,
+                   process_search_detected=len(process_search_terms) > 0)
         
         # Build base query
         query = {
@@ -202,6 +263,33 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         if filters:
             filter_queries = opensearch_client.build_filters_query(filters)
             query["query"]["bool"]["must"].extend(filter_queries)
+
+        # ENHANCED: If we detected process search terms, add comprehensive process search
+        if process_search_terms:
+            for search_term in process_search_terms:
+                normalized_term = search_term.lower().strip()
+                if not normalized_term.endswith('.exe') and '\\' not in normalized_term and '/' not in normalized_term:
+                    exe_term = normalized_term + '.exe'
+                else:
+                    exe_term = normalized_term
+
+                # Create comprehensive process search across multiple fields
+                process_query = {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"data.win.eventdata.originalFileName": f"*{exe_term}*"}},
+                            {"wildcard": {"data.win.eventdata.image": f"*{exe_term}*"}},
+                            {"wildcard": {"data.win.eventdata.commandLine": f"*{exe_term}*"}},
+                            {"wildcard": {"rule.description": f"*{normalized_term}*"}},
+                            {"wildcard": {"rule.description": f"*{exe_term}*"}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
+                query["query"]["bool"]["must"].append(process_query)
+                logger.info("Added comprehensive process search query",
+                           search_term=search_term, normalized=exe_term)
+                break  # Use first term
 
         # Add severity filter if converted from name to range
         if severity_filter:
