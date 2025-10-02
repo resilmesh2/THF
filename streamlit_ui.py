@@ -362,4 +362,4 @@ with st.expander("ℹ️ Help & Examples"):
 
 # Footer
 st.markdown("---")
-st.markdown("**Wazuh LLM Security Assistant** - Powered by Claude 4 Sonnet via LangChain")
+st.markdown("**Wazuh LLM Security Assistant** - Powered by Claude Sonnet 4 via LangChain")
