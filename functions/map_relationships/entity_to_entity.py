@@ -3,6 +3,7 @@ Map direct relationships between entities using OpenSearch aggregations
 """
 from typing import Dict, Any, List, Optional
 import structlog
+from .relationship_types import infer_relationship_type, get_relationship_description
 
 logger = structlog.get_logger()
 
@@ -23,19 +24,28 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         source_type = params.get("source_type")
         source_id = params.get("source_id")
         target_type = params.get("target_type")
+        filters = params.get("filters")
         timeframe = params.get("timeframe", "24h")
-        
-        logger.info("Executing aggregated entity-to-entity relationship mapping", 
+
+        # Ensure filters is a dict or None
+        if filters is None:
+            filters = {}
+        elif not isinstance(filters, dict):
+            logger.warning("filters parameter is not a dict, converting", filters=filters, type=type(filters))
+            filters = {}
+
+        logger.info("Executing aggregated entity-to-entity relationship mapping",
                    source_type=source_type,
                    source_id=source_id,
                    target_type=target_type,
+                   filters=filters,
                    timeframe=timeframe)
-        
+
         # Build time range filter
         time_filter = opensearch_client.build_single_time_filter(timeframe)
-        
+
         # Build aggregation-based query
-        query = _build_relationship_aggregation_query(source_type, source_id, target_type, time_filter)
+        query = _build_relationship_aggregation_query(source_type, source_id, target_type, time_filter, filters)
         
         # Execute search with aggregations
         response = await opensearch_client.search(
@@ -93,8 +103,10 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                                     for b in target_bucket["temporal_distribution"]["buckets"]
                                 ]
                             
-                            # Get latest connection example
+                            # Get latest connection example and infer relationship type
                             latest_connection = None
+                            relationship_type_label = "connected_to"  # default
+
                             if target_bucket.get("latest_connection", {}).get("hits", {}).get("hits"):
                                 latest_hit = target_bucket["latest_connection"]["hits"]["hits"][0]["_source"]
                                 latest_connection = {
@@ -103,14 +115,23 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                                     "rule_level": latest_hit.get("rule", {}).get("level", 0),
                                     "rule_id": latest_hit.get("rule", {}).get("id", "")
                                 }
-                            
+
+                                # Infer relationship type from event data
+                                relationship_type_label = infer_relationship_type(
+                                    source_type=source_type,
+                                    target_type=target_entity_type,
+                                    event_data=latest_hit
+                                )
+
                             # Calculate relationship metrics
                             avg_severity = target_bucket.get("avg_severity", {}).get("value", 0)
                             relationship_score = min(100, (connection_strength * avg_severity) / 10)
-                            
+
                             relationship_data = {
                                 "source_entity": {"type": source_type, "id": source_entity_name},
                                 "target_entity": {"type": target_entity_type, "id": target_entity_name},
+                                "relationship_type": relationship_type_label,
+                                "relationship_description": get_relationship_description(relationship_type_label),
                                 "connection_strength": connection_strength,
                                 "connection_types": connection_types,
                                 "temporal_pattern": temporal_pattern,
@@ -119,7 +140,15 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                                 "relationship_score": round(relationship_score, 2),
                                 "risk_assessment": _assess_relationship_risk(connection_strength, avg_severity, connection_types)
                             }
-                            
+
+                            # Filter out self-referential relationships (same entity connected to itself)
+                            if source_entity_name == target_entity_name:
+                                logger.debug("Skipping self-referential relationship",
+                                           entity=source_entity_name,
+                                           source_type=source_type,
+                                           target_type=target_entity_type)
+                                continue
+
                             relationships.append(relationship_data)
                             relationship_summary["connection_types"].update(connection_types)
                             relationship_summary["unique_targets"].add(target_entity_name)
@@ -164,16 +193,39 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         raise Exception(f"Failed to map entity relationships: {str(e)}")
 
 
-def _build_relationship_aggregation_query(source_type: str, source_id: str, target_type: Optional[str], time_filter: Dict[str, Any]) -> Dict[str, Any]:
+def _build_relationship_aggregation_query(source_type: str, source_id: Optional[str], target_type: Optional[str], time_filter: Dict[str, Any], filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Build aggregation query for relationship mapping"""
-    
-    # Build source entity filter
-    source_filters = _get_entity_filters(source_type, source_id)
+
+    # Build source entity filter (only if source_id is provided)
+    source_filters = _get_entity_filters(source_type, source_id) if source_id else []
+
+    # Build additional filters (e.g., host filter)
+    additional_filters = []
+    if filters:
+        if "host" in filters:
+            additional_filters.append({
+                "bool": {
+                    "should": [
+                        {"term": {"agent.name": filters["host"]}},
+                        {"wildcard": {"agent.name": f"*{filters['host']}*"}}
+                    ]
+                }
+            })
+        if "user" in filters:
+            additional_filters.append({
+                "bool": {
+                    "should": [
+                        {"wildcard": {"data.srcuser": f"*{filters['user']}*"}},
+                        {"wildcard": {"data.dstuser": f"*{filters['user']}*"}},
+                        {"wildcard": {"data.win.eventdata.targetUserName": f"*{filters['user']}*"}}
+                    ]
+                }
+            })
     
     query = {
         "query": {
             "bool": {
-                "must": [time_filter] + source_filters
+                "must": [time_filter] + source_filters + additional_filters
             }
         },
         "aggs": {
@@ -210,7 +262,11 @@ def _build_relationship_aggregation_query(source_type: str, source_id: str, targ
                                 "top_hits": {
                                     "size": 1,
                                     "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                    "_source": [
+                                        "@timestamp", "rule.description", "rule.level", "rule.id",
+                                        "rule.groups", "data.win.system.eventID",
+                                        "data.win.eventdata", "data"
+                                    ]
                                 }
                             }
                         }
@@ -237,7 +293,11 @@ def _build_relationship_aggregation_query(source_type: str, source_id: str, targ
                                 "top_hits": {
                                     "size": 1,
                                     "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                    "_source": [
+                                        "@timestamp", "rule.description", "rule.level", "rule.id",
+                                        "rule.groups", "data.win.system.eventID",
+                                        "data.win.eventdata", "data"
+                                    ]
                                 }
                             }
                         }
@@ -258,7 +318,11 @@ def _build_relationship_aggregation_query(source_type: str, source_id: str, targ
                                 "top_hits": {
                                     "size": 1,
                                     "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                    "_source": [
+                                        "@timestamp", "rule.description", "rule.level", "rule.id",
+                                        "rule.groups", "data.win.system.eventID",
+                                        "data.win.eventdata", "data"
+                                    ]
                                 }
                             }
                         }
@@ -279,7 +343,11 @@ def _build_relationship_aggregation_query(source_type: str, source_id: str, targ
                                 "top_hits": {
                                     "size": 1,
                                     "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": ["@timestamp", "rule.description", "rule.level", "rule.id"]
+                                    "_source": [
+                                        "@timestamp", "rule.description", "rule.level", "rule.id",
+                                        "rule.groups", "data.win.system.eventID",
+                                        "data.win.eventdata", "data"
+                                    ]
                                 }
                             }
                         }
@@ -292,10 +360,14 @@ def _build_relationship_aggregation_query(source_type: str, source_id: str, targ
     return query
 
 
-def _get_entity_filters(entity_type: str, entity_id: str) -> List[Dict[str, Any]]:
+def _get_entity_filters(entity_type: str, entity_id: Optional[str]) -> List[Dict[str, Any]]:
     """Get filters for specific entity type"""
     filters = []
-    
+
+    # If no entity_id provided, return empty filters
+    if not entity_id:
+        return filters
+
     if entity_type.lower() == "host":
         filters.append({
             "bool": {

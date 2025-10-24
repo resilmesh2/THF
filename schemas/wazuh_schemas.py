@@ -94,9 +94,11 @@ class InvestigateEntitySchema(BaseModel):
 class MapRelationshipsSchema(BaseModel):
     """Schema for map_relationships function"""
     source_type: EntityType = Field(description="Type of source entity")
-    source_id: str = Field(description="ID of source entity")
-    target_type: Optional[EntityType] = Field(default=None, description="Type of target entity")
+    source_id: Optional[str] = Field(default=None, description="Identifier of specific source entity. For PROCESS: use full path (e.g., 'C:\\Windows\\System32\\cmd.exe') or executable name (e.g., 'cmd.exe'). For HOST: use hostname (e.g., 'U209-PC-BLEE'). For USER: use username (e.g., 'SYSTEM'). For FILE: use file path. Omit to query ALL entities of source_type.")
+    target_type: Optional[EntityType] = Field(default=None, description="Type of target entity to find relationships TO. Omit or set to None for 'all relationships' queries to return connections to ALL entity types (host, user, process, file).")
     relationship_type: RelationshipType = Field(description="Type of relationship to explore: 'entity_to_entity' (map direct entity connections with connection strength, frequency counts, latest connection details, and relationship risk scoring - use for queries about 'what/who is connected to X', 'connection strength', 'latest connections', 'direct relationships', or 'connection counts'), 'behavioral_correlation' (analyze behavioral patterns, access sequences, authentication flows, temporal clustering, and coordinated activities - use for queries about 'behavior analysis', 'access patterns', 'suspicious activity', 'coordinated actions', 'authentication patterns', or 'temporal correlations')")
+    host: Optional[str] = Field(default=None, description="Filter by specific host name (e.g., 'U209-PC-BLEE') to constrain relationships to events on that host")
+    user: Optional[str] = Field(default=None, description="Filter by specific user name (e.g., 'admin') to constrain relationships to events by that user")
     timeframe: Optional[str] = Field(default="24h", description="Time frame for relationship mapping")
 
 

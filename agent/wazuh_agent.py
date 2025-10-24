@@ -218,10 +218,22 @@ class WazuhSecurityAgent:
 
         for attempt in range(max_retries + 1):
             try:
-                response = await self.agent.arun(user_input)
-                return response
+                # Agent expects input as dict with "input" key for STRUCTURED_CHAT type
+                response = await self.agent.ainvoke({"input": user_input})
+                # Extract the output from the response dict
+                return response.get("output", str(response))
             except Exception as e:
                 error_str = str(e)
+                error_type = type(e).__name__
+
+                # Log detailed error information for debugging
+                logger.error("Agent execution error",
+                           error_type=error_type,
+                           error_message=error_str,
+                           user_input_preview=user_input[:200],
+                           context_filters=context_result.get("suggested_filters", {}),
+                           attempt=attempt + 1)
+
                 if "overloaded" in error_str.lower() or "529" in error_str:
                     if attempt < max_retries:
                         wait_time = (2 ** attempt) * 2  # Exponential backoff: 2s, 4s
@@ -230,6 +242,9 @@ class WazuhSecurityAgent:
                         continue
                     else:
                         return "I apologize, but the system is currently experiencing high load. Please try your query again in a few moments, or try a more specific question to reduce processing requirements."
+                elif "500" in error_str or "api_error" in error_str.lower():
+                    # API 500 errors - provide helpful context
+                    return f"The AI service encountered an error processing your query. This may be due to: (1) ambiguous entity references - try being more specific (e.g., use full process path instead of just name), (2) complex contextual queries - try rephrasing with explicit parameters, or (3) temporary API issues. Original error: {error_str}"
                 else:
                     # Non-overload error, don't retry
                     raise e

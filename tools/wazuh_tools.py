@@ -202,7 +202,7 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
     name: str = "investigate_entity"
-    description: str = "Get alerts, activity, status, or details for a specific entity (host, user, process, file, ip). Use this when querying about a specifically identified entity. Required parameters: entity_type must be one of 'host', 'user', 'process', 'file', or 'ip'; entity_id is the specific identifier (like host ID, username, process name); query_type must be 'alerts', 'activity', 'details', or 'status'. Always provide these as separate structured parameters, not concatenated strings."
+    description: str = "Get alerts, activity, status, or details ABOUT a single entity (host, user, process, file, ip). Use for: 'what alerts does X have?', 'show status/details OF X'. Returns entity properties and alert summaries. NOT for relationships between entities - use map_relationships for 'what did X create/access/spawn'."
     args_schema: Type[InvestigateEntitySchema] = InvestigateEntitySchema
     
     def _run(
@@ -289,28 +289,32 @@ class InvestigateEntityTool(WazuhBaseTool):
 class MapRelationshipsTool(WazuhBaseTool):
     """Tool for mapping relationships between entities"""
     name: str = "map_relationships"
-    description: str = "Map and analyze relationships between entities (users, hosts, files, processes, IPs). Relationship types: 'entity_to_entity' (map direct entity connections with connection strength, frequency counts, latest connection details, and relationship risk scoring - use for queries about 'what/who is connected to X', 'connection strength', 'latest connections', 'direct relationships', or 'connection counts'), 'behavioral_correlation' (analyze entity behavioral patterns, access sequences, authentication flows, and coordinated entity activities over time - use for queries about 'behavior analysis', 'access patterns', 'suspicious entity activity', 'coordinated actions between entities', 'authentication patterns', or 'entity interaction analysis'). For access queries like 'users who accessed host X', use source_type='host', source_id='X', target_type='user'. For 'hosts accessed by user Y', use source_type='user', source_id='Y', target_type='host'."
+    description: str = "Map relationships BETWEEN entities (users, hosts, files, processes). Use for: 'what files did process X create?', 'which processes spawned by Y?', 'show all relationships for process PowerShell.exe'. For 'all relationships' queries, omit target_type. For process names, use source_id='PowerShell.exe' or full path. For queries with host constraints like 'what processes created another process ON HOST X', omit source_id and use host='X'. Returns relationship types (creates, spawned, runs_on, etc.) and connection strength. NOT for timelines ('when did X happen') - use trace_timeline. NOT for single entity properties - use investigate_entity."
     args_schema: Type[MapRelationshipsSchema] = MapRelationshipsSchema
     
     def _run(
         self,
         source_type: str,
-        source_id: str,
-        relationship_type: str,
+        source_id: Optional[str] = None,
+        relationship_type: str = "entity_to_entity",
         target_type: Optional[str] = None,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
         timeframe: str = "24h",
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         """Synchronous wrapper for relationship mapping"""
         import asyncio
-        return asyncio.run(self._arun(source_type, source_id, relationship_type, target_type, timeframe, run_manager))
+        return asyncio.run(self._arun(source_type, source_id, relationship_type, target_type, host, user, timeframe, run_manager))
 
     async def _arun(
         self,
         source_type: str,
-        source_id: str,
-        relationship_type: str,
+        source_id: Optional[str] = None,
+        relationship_type: str = "entity_to_entity",
         target_type: Optional[str] = None,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
         timeframe: str = "24h",
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
@@ -319,11 +323,19 @@ class MapRelationshipsTool(WazuhBaseTool):
             # FIXED: Merge context to preserve timeframe
             _, final_timeframe = self._merge_context_filters(None, timeframe, default_time_range="24h")
 
+            # Build filters dict from individual parameters
+            filters = {}
+            if host:
+                filters["host"] = host
+            if user:
+                filters["user"] = user
+
             # Build parameters for the relationship mapping functions
             params = {
                 "source_type": source_type,
                 "source_id": source_id,
                 "target_type": target_type,
+                "filters": filters if filters else None,
                 "timeframe": final_timeframe
             }
             
@@ -561,7 +573,7 @@ class FindAnomaliesTool(WazuhBaseTool):
 class TraceTimelineTool(WazuhBaseTool):
     """Tool for reconstructing event timelines"""
     name: str = "trace_timeline"
-    description: str = "Reconstruct chronological timeline of events for specific entities or known incidents. Use when you need to trace how events evolved over time for identified entities. View types: 'sequence' (chronological event display), 'progression' (trace attack evolution and technique progression for specific entities - optimized for shorter time windows like 1-3 days), 'temporal' (find events occurring within temporal proximity windows for relationship analysis). IMPORTANT: Always specify view_type parameter. Use view_type='temporal' for queries like 'events at same time', 'across different hosts', 'temporal correlations', 'coordinated activity', 'simultaneous events'. For event_types, use descriptive keywords like 'logon', 'process', 'file', 'network', 'malware' instead of technical terms - these are automatically mapped to the correct rule groups."
+    description: str = "Reconstruct chronological TIMELINE of events. Use for: 'show timeline', 'what happened when?', 'trace event sequence'. Returns time-ordered security events. NOT for entity relationships ('what process created/spawned another') - use map_relationships. View types: 'sequence' (chronological), 'progression' (attack evolution), 'temporal' (simultaneous events)."
     args_schema: Type[TraceTimelineSchema] = TraceTimelineSchema
     
     def _run(
