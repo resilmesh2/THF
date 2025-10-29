@@ -42,61 +42,180 @@ WINDOWS_EVENT_RELATIONSHIPS = {
     "5157": "blocked_connection_to", # Network Connection Blocked
 }
 
+# Reverse relationship mappings (for bidirectional queries)
+# Maps forward relationships to their reverse equivalents
+REVERSE_RELATIONSHIP_MAPPING = {
+    # Process relationships - forward vs reverse
+    "spawned": "spawned_by",           # Process created another → Process created by another
+    "terminated": "terminated_by",     # Process killed another → Process killed by another
+    "injected_into": "injected_by",    # Process injected into another → Process injected by another
 
-def _validate_relationship_for_target(relationship: str, target_type: str) -> bool:
+    # File operation relationships - forward vs reverse
+    "creates": "created_by",           # Process creates file → File created by process
+    "deletes": "deleted_by",           # Process deletes file → File deleted by process
+    "writes": "written_by",            # Process writes to file → File written by process
+    "reads": "read_by",                # Process reads file → File read by process
+    "modifies": "modified_by",         # Process modifies file → File modified by process
+    "modified": "modified_by",         # Process modified file → File modified by process
+    "loads": "loaded_by",              # Process loads file → File loaded by process
+    "loaded": "loaded_by",             # Process loaded file → File loaded by process
+    "accesses": "accessed_by",         # Process accesses file → File accessed by process
+    "accessed": "accessed_by",         # Process accessed file → File accessed by process
+
+    # Authentication relationships - forward vs reverse
+    "authenticated_as": "authenticated", # Process authenticated as user → User authenticated
+    "failed_auth_as": "failed_auth",   # Process failed auth as user → User failed auth
+
+    # Execution relationships - forward vs reverse
+    "executed_by": "executes",         # Process executed by user → User executes process
+    "launched": "launched_by",         # User launched process → Process launched by user
+
+    # Host relationships - forward vs reverse
+    "runs_on": "hosts",                # Process runs on host → Host hosts process
+    "logged_into": "hosts_logon_from", # User logged into host → Host hosts logon from user
+    "contains": "stored_on",           # Host contains file → File stored on host
+
+    # Privilege relationships
+    "elevated_to": "elevated_from",    # Elevated to user → Elevated from user
+    "elevated_by": "elevated",         # Elevated by user → User elevated
+
+    # Ownership relationships
+    "owns": "owned_by",                # User owns file → File owned by user
+    "owned_by": "owns",                # File owned by user → User owns file
+}
+
+# Bidirectional relationships (same in both directions)
+BIDIRECTIONAL_RELATIONSHIPS = [
+    "connected_to",
+    "interacts_with"
+]
+
+
+def get_reverse_relationship(relationship: str) -> str:
     """
-    Validate if a relationship type makes sense for the target entity type
+    Get the reverse relationship type for bidirectional queries
+
+    Args:
+        relationship: Forward relationship type (e.g., 'spawned', 'creates')
+
+    Returns:
+        Reverse relationship type (e.g., 'spawned_by', 'created_by')
+    """
+    # Check if it's a bidirectional relationship (same in both directions)
+    if relationship in BIDIRECTIONAL_RELATIONSHIPS:
+        return relationship
+
+    # Look up reverse mapping
+    return REVERSE_RELATIONSHIP_MAPPING.get(relationship, relationship)
+
+
+def _validate_relationship_for_pair(
+    relationship: str,
+    source_type: str,
+    target_type: str
+) -> bool:
+    """
+    Validate if a relationship type makes sense for the (source, target) entity pair
 
     Args:
         relationship: Relationship type label (e.g., 'spawned', 'creates')
+        source_type: Source entity type (process, host, user, file)
         target_type: Target entity type (process, host, user, file)
 
     Returns:
-        True if the relationship is valid for this target type, False otherwise
+        True if the relationship is valid for this (source, target) pair, False otherwise
     """
     if not target_type:
         # If target_type is None (all relationships), accept the relationship
         return True
 
+    source = source_type.lower() if source_type else ""
     target = target_type.lower()
 
-    # Define which relationships are valid for which target types
+    # Define which relationships are valid for which (source, target) pairs
+    # Format: relationship: [(source, target), ...]
     valid_mappings = {
-        "spawned": ["process"],              # Only Process → Process
-        "terminated": ["process"],           # Only Process → Process
-        "injected_into": ["process"],        # Only Process → Process
-        "creates": ["file"],                 # Only Process → File (for file creation)
-        "deletes": ["file"],                 # Only Process → File
-        "writes": ["file"],                  # Only Process → File
-        "reads": ["file"],                   # Only Process → File
-        "modifies": ["file"],                # Only Process → File
-        "modified": ["file"],                # Only Process → File
-        "accesses": ["file", "process"],     # Process → File or Process → Process
-        "accessed": ["file", "process", "host", "user"],  # Generic access
-        "loads": ["file"],                   # Process loads DLL/module (file)
-        "loaded": ["file"],                  # Process loaded file
-        "authenticated_as": ["user"],        # Process → User
-        "failed_auth_as": ["user"],          # Process → User
-        "elevated_to": ["user"],             # Process → User
-        "elevated_by": ["user"],             # Process → User
-        "executed_by": ["user"],             # Process → User
-        "logged_into": ["host"],             # User → Host
-        "runs_on": ["host"],                 # Process → Host
-        "connected_to": ["host", "process", "user", "file"],  # Generic connection
-        "queried": ["host", "file"],         # DNS queries, file queries
-        "created": ["file", "user"],         # Generic creation
-        "deleted": ["file", "user"],         # Generic deletion
+        # Process → Process relationships
+        "spawned": [("process", "process")],
+        "spawned_by": [("process", "process")],
+        "terminated": [("process", "process")],
+        "terminated_by": [("process", "process")],
+        "injected_into": [("process", "process")],
+        "injected_by": [("process", "process")],
+        "interacts_with": [("process", "process")],
+
+        # Process → File relationships
+        "creates": [("process", "file")],
+        "deletes": [("process", "file")],
+        "writes": [("process", "file")],
+        "reads": [("process", "file")],
+        "modifies": [("process", "file")],
+        "modified": [("process", "file")],
+        "loads": [("process", "file")],
+        "loaded": [("process", "file")],
+        "accesses": [("process", "file"), ("process", "process"), ("user", "file")],
+
+        # File → Process relationships (reverse)
+        "created_by": [("file", "process")],
+        "deleted_by": [("file", "process")],
+        "written_by": [("file", "process")],
+        "read_by": [("file", "process")],
+        "modified_by": [("file", "process")],
+        "loaded_by": [("file", "process")],
+        "accessed_by": [("file", "process"), ("file", "user")],
+
+        # Process → User relationships
+        "authenticated_as": [("process", "user")],  # ONLY Process → User
+        "failed_auth_as": [("process", "user")],
+        "elevated_to": [("process", "user")],
+        "elevated_by": [("process", "user")],
+        "executed_by": [("process", "user")],
+
+        # User → Process relationships (reverse)
+        "authenticated": [("user", "process")],
+        "failed_auth": [("user", "process")],
+        "elevated": [("user", "process")],
+        "elevated_from": [("user", "process")],
+        "executes": [("user", "process"), ("host", "process")],
+        "launched": [("user", "process")],
+        "launched_by": [("process", "user")],
+
+        # Process → Host relationships
+        "runs_on": [("process", "host")],
+
+        # Host → Process relationships
+        "hosts": [("host", "process"), ("host", "user"), ("host", "file")],
+
+        # User → Host relationships
+        "logged_into": [("user", "host")],
+        "hosts_logon_from": [("host", "user")],  # Reverse: Host received logon from user
+
+        # Host → File relationships
+        "contains": [("host", "file")],
+        "stored_on": [("file", "host")],
+
+        # User → File relationships
+        "owns": [("user", "file")],
+        "owned_by": [("file", "user")],
+
+        # Generic relationships (multiple valid pairs)
+        "accessed": [("process", "file"), ("user", "file"), ("user", "host"), ("process", "host")],
+        "connected_to": [("process", "host"), ("process", "process"), ("user", "host"), ("file", "host")],
+        "blocked_connection_to": [("process", "host")],
+        "queried": [("process", "host")],
+        "created": [("process", "file"), ("user", "user")],
+        "deleted": [("process", "file"), ("user", "user")],
     }
 
-    # Check if this relationship is valid for the target type
-    valid_targets = valid_mappings.get(relationship)
+    # Check if this relationship is valid for the (source, target) pair
+    valid_pairs = valid_mappings.get(relationship)
 
     # If relationship not in mapping, accept it (unknown relationship types pass through)
-    if valid_targets is None:
+    if valid_pairs is None:
         return True
 
-    # Check if target type is in the list of valid targets
-    return target in valid_targets
+    # Check if (source, target) pair is in the list of valid pairs
+    return (source, target) in valid_pairs
 
 
 def infer_relationship_type(
@@ -122,12 +241,12 @@ def infer_relationship_type(
     rule_description = event_data.get("rule", {}).get("description", "").lower()
 
     # Priority 1: Check Sysmon Event ID first (most specific)
-    # BUT: Verify the relationship makes sense for the target entity type
+    # BUT: Verify the relationship makes sense for the (source, target) pair
     if event_id and event_id in SYSMON_EVENT_RELATIONSHIPS:
         relationship = SYSMON_EVENT_RELATIONSHIPS[event_id]
 
-        # Validate relationship against target entity type
-        if _validate_relationship_for_target(relationship, target_type):
+        # Validate relationship against (source, target) entity pair
+        if _validate_relationship_for_pair(relationship, source_type, target_type):
             return relationship
         # If invalid, fall through to next priority
 
@@ -135,8 +254,8 @@ def infer_relationship_type(
     if event_id and event_id in WINDOWS_EVENT_RELATIONSHIPS:
         relationship = WINDOWS_EVENT_RELATIONSHIPS[event_id]
 
-        # Validate relationship against target entity type
-        if _validate_relationship_for_target(relationship, target_type):
+        # Validate relationship against (source, target) entity pair
+        if _validate_relationship_for_pair(relationship, source_type, target_type):
             return relationship
         # If invalid, fall through to next priority
 
@@ -167,37 +286,81 @@ def _infer_from_keywords(
     Returns:
         Relationship type or None if no clear match
     """
-    # File operations
+    # File operations - CONTEXT-AWARE
     if any(kw in rule_description for kw in ["file created", "file dropped", "dropped"]):
-        return "creates"
+        if source_type.lower() == "process" and target_type.lower() == "file":
+            return "creates"
+        return None
     elif any(kw in rule_description for kw in ["file deleted", "removed"]):
-        return "deletes"
+        if source_type.lower() == "process" and target_type.lower() == "file":
+            return "deletes"
+        return None
     elif any(kw in rule_description for kw in ["file modified", "modified", "changed"]):
-        return "modifies"
+        if source_type.lower() == "process" and target_type.lower() == "file":
+            return "modifies"
+        return None
     elif any(kw in rule_description for kw in ["file read", "accessed", "opened"]):
-        return "reads"
+        if source_type.lower() == "process" and target_type.lower() == "file":
+            return "reads"
+        elif source_type.lower() == "user" and target_type.lower() == "file":
+            return "accessed"
+        return None
     elif "wrote" in rule_description or "written" in rule_description:
-        return "writes"
+        if source_type.lower() == "process" and target_type.lower() == "file":
+            return "writes"
+        return None
 
-    # Process operations
+    # Process operations - CONTEXT-AWARE
     elif any(kw in rule_description for kw in ["process created", "new process", "spawned", "launched"]):
-        return "spawned"
+        # Only Process → Process or User → Process makes sense
+        if source_type.lower() == "process" and target_type.lower() == "process":
+            return "spawned"
+        elif source_type.lower() == "user" and target_type.lower() == "process":
+            return "launched"
+        return None
     elif any(kw in rule_description for kw in ["process terminated", "killed", "ended"]):
-        return "terminated"
+        if source_type.lower() == "process" and target_type.lower() == "process":
+            return "terminated"
+        return None
     elif "executed" in rule_description or "execution" in rule_description:
-        return "executes"
+        # Process executed by user, or host executes process
+        if source_type.lower() == "process" and target_type.lower() == "user":
+            return "executed_by"
+        elif source_type.lower() == "user" and target_type.lower() == "process":
+            return "executes"
+        elif source_type.lower() == "host" and target_type.lower() == "process":
+            return "executes"
+        return None
 
-    # DLL/Module operations
+    # DLL/Module operations - CONTEXT-AWARE
     elif "loaded" in rule_description or "dll" in rule_description:
-        return "loads"
+        if source_type.lower() == "process" and target_type.lower() == "file":
+            return "loads"
+        return None
 
-    # Authentication operations
+    # Authentication operations - CONTEXT-AWARE
     elif any(kw in rule_description for kw in ["logon success", "login success", "authenticated"]):
-        return "authenticated_as"
+        # Process → User: authenticated_as
+        # Host → User: hosts_logon_from
+        # User → Host: logged_into
+        if source_type.lower() == "process" and target_type.lower() == "user":
+            return "authenticated_as"
+        elif source_type.lower() == "host" and target_type.lower() == "user":
+            return "hosts_logon_from"
+        elif source_type.lower() == "user" and target_type.lower() == "host":
+            return "logged_into"
+        # Default for other pairs: skip this keyword match
+        return None
     elif any(kw in rule_description for kw in ["logon fail", "login fail", "authentication fail"]):
-        return "failed_auth_as"
+        if source_type.lower() == "process" and target_type.lower() == "user":
+            return "failed_auth_as"
+        elif source_type.lower() == "host" and target_type.lower() == "user":
+            return "hosts_logon_from"  # Still a logon attempt
+        return None
     elif "privilege" in rule_description or "elevation" in rule_description:
-        return "elevated_to"
+        if source_type.lower() == "process" and target_type.lower() == "user":
+            return "elevated_to"
+        return None
 
     # Network operations
     elif "connection" in rule_description or "connected" in rule_description:
@@ -238,7 +401,7 @@ def _infer_by_entity_types(
         elif any(g in rule_groups for g in ["authentication_failed", "authentication_failures"]):
             return "failed_auth_as"
         elif "privilege" in rule_description or "elevation" in rule_description:
-            return "elevated_by"
+            return "elevated_to"  # FIXED: was "elevated_by"
         else:
             return "executed_by"
 
@@ -268,7 +431,10 @@ def _infer_by_entity_types(
 
     # Host → User
     elif source == "host" and target == "user":
-        return "hosts"
+        # Check for authentication events
+        if any(g in rule_groups for g in ["authentication", "authentication_success", "logon"]):
+            return "hosts_logon_from"  # Host received logon from user
+        return "hosts"  # Generic: Host hosts user account
 
     # Host → Process
     elif source == "host" and target == "process":
@@ -290,13 +456,20 @@ def _infer_by_entity_types(
 
     # User → File
     elif source == "user" and target == "file":
-        if "access" in rule_description:
-            return "accessed"
-        return "owns"
+        # FIXED: Check for explicit ownership keywords first
+        # "owns" should only be used for explicit ownership events (rare in Wazuh)
+        if any(kw in rule_description for kw in ["owner", "ownership", "owns"]):
+            return "owns"
+        # Default: "accessed" is far more common and semantically correct
+        # Most User→File events are access/modification, not ownership changes
+        return "accessed"
 
     # File → Process
     elif source == "file" and target == "process":
-        return "executed_by"
+        # File operations on process (loaded, executed)
+        if "load" in rule_description or "dll" in rule_description or "module" in rule_description:
+            return "loaded_by"
+        return "loaded_by"  # Default: file loaded by process
 
     # File → Host
     elif source == "file" and target == "host":
@@ -304,7 +477,11 @@ def _infer_by_entity_types(
 
     # File → User
     elif source == "file" and target == "user":
-        return "owned_by"
+        # FIXED: To match User→File default of "accessed", use "accessed_by" as default
+        # Only use "owned_by" if explicitly about ownership in rule description
+        if any(kw in rule_description for kw in ["owner", "ownership", "owns"]):
+            return "owned_by"
+        return "accessed_by"  # Default: reverse of User→File "accessed"
 
     # Default fallback
     else:
@@ -322,7 +499,7 @@ def get_relationship_description(relationship_type: str) -> str:
         Human-readable description
     """
     descriptions = {
-        # Process relationships
+        # Forward Process relationships
         "runs_on": "Process executes on host",
         "executed_by": "Process executed by user",
         "spawned": "Process created another process",
@@ -336,20 +513,45 @@ def get_relationship_description(relationship_type: str) -> str:
         "loads": "Process loaded library/module",
         "accesses": "Process accessed file",
 
-        # Authentication relationships
+        # Reverse Process relationships (bidirectional support)
+        "spawned_by": "Process created by another process",
+        "terminated_by": "Process terminated by another process",
+        "injected_by": "Process injected by another process",
+        "created_by": "File created by process",
+        "deleted_by": "File deleted by process",
+        "written_by": "File written by process",
+        "read_by": "File read by process",
+        "modified_by": "File modified by process",
+        "loaded_by": "File loaded by process",
+        "accessed_by": "File accessed by process",
+
+        # Forward Authentication relationships
         "authenticated_as": "Successful authentication as user",
         "failed_auth_as": "Failed authentication attempt as user",
         "elevated_to": "Privilege elevation to user context",
+        "elevated_by": "Privilege elevation by user",
 
-        # Host relationships
-        "hosts": "Host contains user account",
-        "executes": "Host executes process",
+        # Reverse Authentication relationships
+        "authenticated": "User authenticated",
+        "failed_auth": "User failed authentication",
+        "elevated_from": "Privilege elevated from user",
+        "elevated": "User performed privilege elevation",
+
+        # Forward Host relationships
+        "hosts": "Host contains entity",
+        "executes": "Entity executes process",
         "contains": "Host stores file",
 
-        # User relationships
+        # Reverse Host relationships
+        "hosts_logon_from": "Host received logon from user",
+
+        # Forward User relationships
         "logged_into": "User logged into host",
         "launched": "User launched process",
         "owns": "User owns file",
+
+        # Reverse User relationships
+        "launched_by": "Process launched by user",
 
         # Network relationships
         "connected_to": "Network connection established",
@@ -359,8 +561,10 @@ def get_relationship_description(relationship_type: str) -> str:
         "stored_on": "File stored on host",
         "owned_by": "File owned by user",
 
-        # Generic
-        "accessed": "Entity accessed another entity",
+        # Generic access relationships
+        "accessed": "Entity accessed another entity (file access, host access, etc.)",
+        "accessed_by": "Entity accessed by another entity",
+        "interacts_with": "Entity interacts with another entity",
     }
 
     return descriptions.get(relationship_type, f"Related via {relationship_type}")

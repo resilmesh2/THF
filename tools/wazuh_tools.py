@@ -289,7 +289,50 @@ class InvestigateEntityTool(WazuhBaseTool):
 class MapRelationshipsTool(WazuhBaseTool):
     """Tool for mapping relationships between entities"""
     name: str = "map_relationships"
-    description: str = "Map relationships BETWEEN entities (users, hosts, files, processes). Use for: 'what files did process X create?', 'which processes spawned by Y?', 'show all relationships for process PowerShell.exe'. For 'all relationships' queries, omit target_type. For process names, use source_id='PowerShell.exe' or full path. For queries with host constraints like 'what processes created another process ON HOST X', omit source_id and use host='X'. Returns relationship types (creates, spawned, runs_on, etc.) and connection strength. NOT for timelines ('when did X happen') - use trace_timeline. NOT for single entity properties - use investigate_entity."
+    description: str = """Map relationships between entities (users, hosts, files, processes). Use for queries about entities interacting with other entities.
+
+PARAMETERS: Only source_type is required. Others (source_id, target_type, host, user, timeframe) are OPTIONAL - omit unless specified in query.
+
+DIRECTION: Identify SUBJECT (source) → OBJECT (target). Query 'what did X do to Y?' → source=X, target=Y. Query 'what did Y to X?' → source=Y, target=X.
+
+KEY PATTERNS BY ENTITY TYPE:
+
+PROCESS queries:
+- 'what processes did X spawn?' → source_type='process', source_id='X', target_type='process'
+- 'what files did X create/modify?' → source_type='process', source_id='X', target_type='file'
+- 'who ran/executed process X?' → source_type='process', source_id='X', target_type='user'
+- 'where is X running?' → source_type='process', source_id='X', target_type='host'
+
+USER queries:
+- 'what processes did user X launch?' → source_type='user', source_id='X', target_type='process'
+- 'what hosts did user X access?' → source_type='user', source_id='X', target_type='host'
+
+HOST queries:
+- 'what users logged into host X?' → source_type='host', source_id='X', target_type='user'
+- 'what processes run on host X?' → source_type='host', source_id='X', target_type='process'
+- 'what files are on host X?' → source_type='host', source_id='X', target_type='file'
+
+FILE queries:
+- 'what process created file X?' → source_type='file', source_id='X', target_type='process'
+- 'where is file X stored?' → source_type='file', source_id='X', target_type='host'
+- 'who owns file X?' → source_type='file', source_id='X', target_type='user'
+
+BULK queries (omit source_id for all entities):
+- 'all processes by users' → source_type='user', target_type='process'
+- 'all files by processes' → source_type='process', target_type='file'
+
+ALL RELATIONSHIPS (omit target_type):
+- 'all relationships for X' → source_type='process/user/host/file', source_id='X'
+
+FILTERS (ONLY when explicitly mentioned):
+- host filter: 'files created by X on host Y' → source_type='process', source_id='X', target_type='file', host='Y'
+- user filter: 'processes on host X by user Y' → source_type='host', source_id='X', target_type='process', user='Y'
+
+RELATIONSHIP TYPES: spawned/spawned_by, created/created_by, modified/modified_by, executed/executed_by, logged_into, owns/owned_by, contains/stored_on, runs_on/hosts
+
+BIDIRECTIONAL: Returns both outbound (source→target) and inbound (target→source) relationships by default.
+
+NOT FOR: Timelines ('when did X happen?') → use trace_timeline. Entity properties ('alerts for X', 'status of X') → use investigate_entity."""
     args_schema: Type[MapRelationshipsSchema] = MapRelationshipsSchema
     
     def _run(
@@ -573,7 +616,7 @@ class FindAnomaliesTool(WazuhBaseTool):
 class TraceTimelineTool(WazuhBaseTool):
     """Tool for reconstructing event timelines"""
     name: str = "trace_timeline"
-    description: str = "Reconstruct chronological TIMELINE of events. Use for: 'show timeline', 'what happened when?', 'trace event sequence'. Returns time-ordered security events. NOT for entity relationships ('what process created/spawned another') - use map_relationships. View types: 'sequence' (chronological), 'progression' (attack evolution), 'temporal' (simultaneous events)."
+    description: str = "Reconstruct chronological TIMELINE of WHEN events occurred. Use ONLY for temporal/time-based queries: 'show timeline of events', 'what happened when?', 'trace event sequence over time', 'attack progression timeline'. Returns time-ordered security events with timestamps. NOT for WHO/WHAT relationships between entities ('users launching processes', 'processes created by users', 'what process created/spawned another', 'files created by process') - use map_relationships for entity interactions. View types: 'sequence' (chronological), 'progression' (attack evolution), 'temporal' (simultaneous events)."
     args_schema: Type[TraceTimelineSchema] = TraceTimelineSchema
     
     def _run(

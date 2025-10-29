@@ -3,7 +3,7 @@ Map direct relationships between entities using OpenSearch aggregations
 """
 from typing import Dict, Any, List, Optional
 import structlog
-from .relationship_types import infer_relationship_type, get_relationship_description
+from .relationship_types import infer_relationship_type, get_relationship_description, get_reverse_relationship
 
 logger = structlog.get_logger()
 
@@ -11,11 +11,12 @@ logger = structlog.get_logger()
 async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Map direct relationships between entities using aggregation-based approach
-    
+    Supports BIDIRECTIONAL relationship queries (both outbound and inbound)
+
     Args:
         opensearch_client: OpenSearch client instance
-        params: Parameters including source_type, source_id, target_type, timeframe
-        
+        params: Parameters including source_type, source_id, target_type, timeframe, bidirectional
+
     Returns:
         Direct entity relationships with connection strength and analysis
     """
@@ -26,6 +27,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         target_type = params.get("target_type")
         filters = params.get("filters")
         timeframe = params.get("timeframe", "24h")
+        bidirectional = params.get("bidirectional", True)  # Default to bidirectional
 
         # Ensure filters is a dict or None
         if filters is None:
@@ -39,26 +41,49 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                    source_id=source_id,
                    target_type=target_type,
                    filters=filters,
-                   timeframe=timeframe)
+                   timeframe=timeframe,
+                   bidirectional=bidirectional)
 
         # Build time range filter
         time_filter = opensearch_client.build_single_time_filter(timeframe)
 
-        # Build aggregation-based query
-        query = _build_relationship_aggregation_query(source_type, source_id, target_type, time_filter, filters)
-        
-        # Execute search with aggregations
-        response = await opensearch_client.search(
+        # Execute OUTBOUND query (source_entity → target_entities)
+        outbound_query = _build_relationship_aggregation_query(source_type, source_id, target_type, time_filter, filters)
+
+        outbound_response = await opensearch_client.search(
             index=opensearch_client.alerts_index,
-            query=query,
+            query=outbound_query,
             size=0  # Only aggregations needed
         )
-        
-        # Process aggregation results
-        total_alerts = response["aggregations"]["total_count"]["value"]
-        aggregations = response.get("aggregations", {})
-        
-        logger.info("Retrieved aggregated relationship data", total_alerts=total_alerts)
+
+        # Process outbound results
+        total_alerts_outbound = outbound_response["aggregations"]["total_count"]["value"]
+        outbound_aggregations = outbound_response.get("aggregations", {})
+
+        logger.info("Retrieved outbound relationship data", total_alerts=total_alerts_outbound)
+
+        # Execute INBOUND query (target_entities → source_entity) if bidirectional and source_id provided
+        inbound_aggregations = None
+        total_alerts_inbound = 0
+
+        if bidirectional and source_id:
+            logger.info("Executing inbound relationship query for bidirectional mapping")
+
+            inbound_query = _build_reverse_relationship_aggregation_query(source_type, source_id, target_type, time_filter, filters)
+
+            inbound_response = await opensearch_client.search(
+                index=opensearch_client.alerts_index,
+                query=inbound_query,
+                size=0
+            )
+
+            total_alerts_inbound = inbound_response["aggregations"]["total_count"]["value"]
+            inbound_aggregations = inbound_response.get("aggregations", {})
+
+            logger.info("Retrieved inbound relationship data", total_alerts=total_alerts_inbound)
+
+        # Combine total alerts
+        total_alerts = total_alerts_outbound + total_alerts_inbound
         
         # Process relationship network from aggregations
         relationships = []
@@ -70,90 +95,34 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             "connection_types": set(),
             "unique_targets": set(),
             "relationship_strength_distribution": {},
-            "temporal_patterns": {}
+            "temporal_patterns": {},
+            "bidirectional": bidirectional
         }
-        
-        # Process source entity aggregations
-        if "source_entities" in aggregations:
-            for source_bucket in aggregations["source_entities"]["buckets"]:
-                source_entity_name = source_bucket["key"]
-                
-                # Process each target type
-                target_mappings = {
-                    "connected_users": "user",
-                    "connected_hosts": "host", 
-                    "connected_processes": "process",
-                    "connected_files": "file"
-                }
-                
-                for agg_name, target_entity_type in target_mappings.items():
-                    if agg_name in source_bucket:
-                        for target_bucket in source_bucket[agg_name]["buckets"]:
-                            target_entity_name = target_bucket["key"]
-                            connection_strength = target_bucket["doc_count"]
-                            
-                            # Extract connection types from rule groups
-                            connection_types = [b["key"] for b in target_bucket.get("connection_types", {}).get("buckets", [])]
-                            
-                            # Get temporal pattern
-                            temporal_pattern = []
-                            if "temporal_distribution" in target_bucket:
-                                temporal_pattern = [
-                                    {"timestamp": b["key_as_string"], "count": b["doc_count"]} 
-                                    for b in target_bucket["temporal_distribution"]["buckets"]
-                                ]
-                            
-                            # Get latest connection example and infer relationship type
-                            latest_connection = None
-                            relationship_type_label = "connected_to"  # default
 
-                            if target_bucket.get("latest_connection", {}).get("hits", {}).get("hits"):
-                                latest_hit = target_bucket["latest_connection"]["hits"]["hits"][0]["_source"]
-                                latest_connection = {
-                                    "timestamp": latest_hit.get("@timestamp", ""),
-                                    "rule_description": latest_hit.get("rule", {}).get("description", ""),
-                                    "rule_level": latest_hit.get("rule", {}).get("level", 0),
-                                    "rule_id": latest_hit.get("rule", {}).get("id", "")
-                                }
+        # Process OUTBOUND relationships (source_entity → target_entities)
+        if "source_entities" in outbound_aggregations:
+            outbound_relationships = _process_aggregation_buckets(
+                aggregations=outbound_aggregations,
+                source_type=source_type,
+                is_reverse=False
+            )
+            relationships.extend(outbound_relationships)
 
-                                # Infer relationship type from event data
-                                relationship_type_label = infer_relationship_type(
-                                    source_type=source_type,
-                                    target_type=target_entity_type,
-                                    event_data=latest_hit
-                                )
+        # Process INBOUND relationships (target_entities → source_entity)
+        if inbound_aggregations and "source_entities" in inbound_aggregations:
+            inbound_relationships = _process_aggregation_buckets(
+                aggregations=inbound_aggregations,
+                source_type=source_type,
+                is_reverse=True
+            )
+            relationships.extend(inbound_relationships)
 
-                            # Calculate relationship metrics
-                            avg_severity = target_bucket.get("avg_severity", {}).get("value", 0)
-                            relationship_score = min(100, (connection_strength * avg_severity) / 10)
+        # Update relationship summary
+        for rel in relationships:
+            relationship_summary["connection_types"].update(rel["connection_types"])
+            relationship_summary["unique_targets"].add(rel["target_entity"]["id"])
+            relationship_summary["total_connections"] += rel["connection_strength"]
 
-                            relationship_data = {
-                                "source_entity": {"type": source_type, "id": source_entity_name},
-                                "target_entity": {"type": target_entity_type, "id": target_entity_name},
-                                "relationship_type": relationship_type_label,
-                                "relationship_description": get_relationship_description(relationship_type_label),
-                                "connection_strength": connection_strength,
-                                "connection_types": connection_types,
-                                "temporal_pattern": temporal_pattern,
-                                "latest_connection": latest_connection,
-                                "avg_severity": round(avg_severity, 2),
-                                "relationship_score": round(relationship_score, 2),
-                                "risk_assessment": _assess_relationship_risk(connection_strength, avg_severity, connection_types)
-                            }
-
-                            # Filter out self-referential relationships (same entity connected to itself)
-                            if source_entity_name == target_entity_name:
-                                logger.debug("Skipping self-referential relationship",
-                                           entity=source_entity_name,
-                                           source_type=source_type,
-                                           target_type=target_entity_type)
-                                continue
-
-                            relationships.append(relationship_data)
-                            relationship_summary["connection_types"].update(connection_types)
-                            relationship_summary["unique_targets"].add(target_entity_name)
-                            relationship_summary["total_connections"] += connection_strength
-        
         # Convert sets to lists and add summary statistics
         relationship_summary["connection_types"] = list(relationship_summary["connection_types"])
         relationship_summary["unique_targets"] = list(relationship_summary["unique_targets"])
@@ -161,9 +130,13 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         relationship_summary["avg_connection_strength"] = (
             relationship_summary["total_connections"] / len(relationships) if relationships else 0
         )
-        
-        # Generate enhanced analysis
-        analysis = _analyze_aggregated_relationships(relationships, aggregations)
+
+        # Generate enhanced analysis (combine both aggregation sources)
+        combined_aggregations = outbound_aggregations if not inbound_aggregations else {
+            **outbound_aggregations,
+            "inbound": inbound_aggregations
+        }
+        analysis = _analyze_aggregated_relationships(relationships, combined_aggregations)
         
         # Build result
         result = {
@@ -173,6 +146,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "source_id": source_id,
                 "target_type": target_type,
                 "timeframe": timeframe,
+                "bidirectional": bidirectional,
                 "data_source": "opensearch_alerts"
             },
             "relationship_summary": relationship_summary,
@@ -217,11 +191,13 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
                     "should": [
                         {"wildcard": {"data.srcuser": f"*{filters['user']}*"}},
                         {"wildcard": {"data.dstuser": f"*{filters['user']}*"}},
-                        {"wildcard": {"data.win.eventdata.targetUserName": f"*{filters['user']}*"}}
+                        {"wildcard": {"data.win.eventdata.user": f"*{filters['user']}*"}},  # ADDED: Sysmon process execution user
+                        {"wildcard": {"data.win.eventdata.targetUserName": f"*{filters['user']}*"}},
+                        {"wildcard": {"data.win.eventdata.subjectUserName": f"*{filters['user']}*"}}
                     ]
                 }
             })
-    
+
     query = {
         "query": {
             "bool": {
@@ -240,117 +216,62 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
                     "size": 100
                 },
                 "aggs": {
-                    "connected_users": {
+                    # Multiple user aggregations to capture different event types
+                    "connected_users_auth": {
                         "terms": {
                             "field": "data.win.eventdata.targetUserName",
                             "size": 50
                         },
-                        "aggs": {
-                            "connection_types": {
-                                "terms": {"field": "rule.groups", "size": 10}
-                            },
-                            "avg_severity": {
-                                "avg": {"field": "rule.level"}
-                            },
-                            "temporal_distribution": {
-                                "date_histogram": {
-                                    "field": "@timestamp",
-                                    "interval": "1h"
-                                }
-                            },
-                            "latest_connection": {
-                                "top_hits": {
-                                    "size": 1,
-                                    "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": [
-                                        "@timestamp", "rule.description", "rule.level", "rule.id",
-                                        "rule.groups", "data.win.system.eventID",
-                                        "data.win.eventdata", "data"
-                                    ]
-                                }
-                            }
-                        }
+                        "aggs": _get_connection_sub_aggregations()
+                    },
+                    "connected_users_sysmon": {
+                        "terms": {
+                            "field": "data.win.eventdata.user",
+                            "size": 50
+                        },
+                        "aggs": _get_connection_sub_aggregations()
+                    },
+                    "connected_users_subject": {
+                        "terms": {
+                            "field": "data.win.eventdata.subjectUserName",
+                            "size": 50
+                        },
+                        "aggs": _get_connection_sub_aggregations()
                     },
                     "connected_hosts": {
                         "terms": {
-                            "field": "agent.name", 
+                            "field": "agent.name",
                             "size": 50
                         },
-                        "aggs": {
-                            "connection_types": {
-                                "terms": {"field": "rule.groups", "size": 10}
-                            },
-                            "avg_severity": {
-                                "avg": {"field": "rule.level"}
-                            },
-                            "temporal_distribution": {
-                                "date_histogram": {
-                                    "field": "@timestamp",
-                                    "interval": "1h"  
-                                }
-                            },
-                            "latest_connection": {
-                                "top_hits": {
-                                    "size": 1,
-                                    "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": [
-                                        "@timestamp", "rule.description", "rule.level", "rule.id",
-                                        "rule.groups", "data.win.system.eventID",
-                                        "data.win.eventdata", "data"
-                                    ]
-                                }
-                            }
-                        }
+                        "aggs": _get_connection_sub_aggregations()
                     },
                     "connected_processes": {
                         "terms": {
                             "field": "data.win.eventdata.image",
                             "size": 30
                         },
-                        "aggs": {
-                            "connection_types": {
-                                "terms": {"field": "rule.groups", "size": 10}
-                            },
-                            "avg_severity": {
-                                "avg": {"field": "rule.level"}
-                            },
-                            "latest_connection": {
-                                "top_hits": {
-                                    "size": 1,
-                                    "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": [
-                                        "@timestamp", "rule.description", "rule.level", "rule.id",
-                                        "rule.groups", "data.win.system.eventID",
-                                        "data.win.eventdata", "data"
-                                    ]
-                                }
-                            }
-                        }
+                        "aggs": _get_connection_sub_aggregations()
+                    },
+                    "connected_processes_parent": {
+                        "terms": {
+                            "field": "data.win.eventdata.parentImage",  # Parent processes (spawners)
+                            "size": 30
+                        },
+                        "aggs": _get_connection_sub_aggregations()
                     },
                     "connected_files": {
                         "terms": {
                             "field": "data.win.eventdata.targetFilename",
                             "size": 30
                         },
-                        "aggs": {
-                            "connection_types": {
-                                "terms": {"field": "rule.groups", "size": 10}
-                            },
-                            "avg_severity": {
-                                "avg": {"field": "rule.level"}
-                            },
-                            "latest_connection": {
-                                "top_hits": {
-                                    "size": 1,
-                                    "sort": [{"@timestamp": {"order": "desc"}}],
-                                    "_source": [
-                                        "@timestamp", "rule.description", "rule.level", "rule.id",
-                                        "rule.groups", "data.win.system.eventID",
-                                        "data.win.eventdata", "data"
-                                    ]
-                                }
-                            }
-                        }
+                        "aggs": _get_connection_sub_aggregations()
+                    },
+                    "connected_files_loaded": {
+                        "terms": {
+                            "field": "data.win.eventdata.imageLoaded",  # DLL/Image load events (Event ID 7)
+                            "size": 30
+                        },
+                        "aggs": _get_connection_sub_aggregations()
                     }
                 }
             }
@@ -358,6 +279,426 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
     }
     
     return query
+
+
+def _process_aggregation_buckets(
+    aggregations: Dict[str, Any],
+    source_type: str,
+    is_reverse: bool
+) -> List[Dict[str, Any]]:
+    """
+    Process aggregation buckets and extract relationships
+
+    Args:
+        aggregations: OpenSearch aggregation results
+        source_type: The original source entity type from the query
+        is_reverse: True if processing inbound relationships (reversed direction)
+
+    Returns:
+        List of relationship dictionaries
+    """
+    relationships = []
+
+    # Map aggregation names to entity types
+    # Multiple user aggregations to capture different event types
+    target_mappings = {
+        "connected_users_auth": "user",      # Authentication events (targetUserName)
+        "connected_users_sysmon": "user",    # Sysmon events (user)
+        "connected_users_subject": "user",   # Subject user (subjectUserName)
+        "connected_hosts": "host",
+        "connected_processes": "process",           # Child processes (image)
+        "connected_processes_parent": "process",    # Parent processes (parentImage)
+        "connected_files": "file",                  # File operations (targetFilename)
+        "connected_files_loaded": "file"            # DLL/Image loads (imageLoaded)
+    }
+
+    if "source_entities" not in aggregations:
+        return relationships
+
+    for source_bucket in aggregations["source_entities"]["buckets"]:
+        source_entity_name = source_bucket["key"]
+
+        # Process each target type
+        for agg_name, target_entity_type in target_mappings.items():
+            if agg_name in source_bucket:
+                for target_bucket in source_bucket[agg_name]["buckets"]:
+                    target_entity_name = target_bucket["key"]
+                    connection_strength = target_bucket["doc_count"]
+
+                    # Extract connection types from rule groups
+                    connection_types = [b["key"] for b in target_bucket.get("connection_types", {}).get("buckets", [])]
+
+                    # Get temporal pattern
+                    temporal_pattern = []
+                    if "temporal_distribution" in target_bucket:
+                        temporal_pattern = [
+                            {"timestamp": b["key_as_string"], "count": b["doc_count"]}
+                            for b in target_bucket["temporal_distribution"]["buckets"]
+                        ]
+
+                    # Get latest connection example and infer relationship type
+                    latest_connection = None
+                    relationship_type_label = "connected_to"  # default
+
+                    if target_bucket.get("latest_connection", {}).get("hits", {}).get("hits"):
+                        latest_hit = target_bucket["latest_connection"]["hits"]["hits"][0]["_source"]
+                        latest_connection = {
+                            "timestamp": latest_hit.get("@timestamp", ""),
+                            "rule_description": latest_hit.get("rule", {}).get("description", ""),
+                            "rule_level": latest_hit.get("rule", {}).get("level", 0),
+                            "rule_id": latest_hit.get("rule", {}).get("id", "")
+                        }
+
+                        # Infer relationship type based on direction
+                        if is_reverse:
+                            # For inbound: infer from target_entity → source_entity perspective
+                            # Then get the REVERSE label for correct semantics
+                            forward_relationship = infer_relationship_type(
+                                source_type=target_entity_type,
+                                target_type=source_type,
+                                event_data=latest_hit
+                            )
+                            # Get reverse relationship (e.g., "spawned" → "spawned_by")
+                            relationship_type_label = get_reverse_relationship(forward_relationship)
+                        else:
+                            # For outbound: use direct inference
+                            relationship_type_label = infer_relationship_type(
+                                source_type=source_type,
+                                target_type=target_entity_type,
+                                event_data=latest_hit
+                            )
+
+                    # Calculate relationship metrics
+                    avg_severity = target_bucket.get("avg_severity", {}).get("value", 0)
+                    relationship_score = min(100, (connection_strength * avg_severity) / 10)
+
+                    # Build relationship data with correct direction
+                    if is_reverse:
+                        # Inbound: target_entity → source_entity
+                        relationship_data = {
+                            "source_entity": {"type": target_entity_type, "id": target_entity_name},
+                            "target_entity": {"type": source_type, "id": source_entity_name},
+                            "relationship_type": relationship_type_label,
+                            "relationship_description": get_relationship_description(relationship_type_label),
+                            "connection_strength": connection_strength,
+                            "connection_types": connection_types,
+                            "temporal_pattern": temporal_pattern,
+                            "latest_connection": latest_connection,
+                            "avg_severity": round(avg_severity, 2),
+                            "relationship_score": round(relationship_score, 2),
+                            "risk_assessment": _assess_relationship_risk(connection_strength, avg_severity, connection_types),
+                            "direction": "inbound"
+                        }
+                    else:
+                        # Outbound: source_entity → target_entity
+                        relationship_data = {
+                            "source_entity": {"type": source_type, "id": source_entity_name},
+                            "target_entity": {"type": target_entity_type, "id": target_entity_name},
+                            "relationship_type": relationship_type_label,
+                            "relationship_description": get_relationship_description(relationship_type_label),
+                            "connection_strength": connection_strength,
+                            "connection_types": connection_types,
+                            "temporal_pattern": temporal_pattern,
+                            "latest_connection": latest_connection,
+                            "avg_severity": round(avg_severity, 2),
+                            "relationship_score": round(relationship_score, 2),
+                            "risk_assessment": _assess_relationship_risk(connection_strength, avg_severity, connection_types),
+                            "direction": "outbound"
+                        }
+
+                    # Filter out self-referential relationships
+                    if source_entity_name == target_entity_name:
+                        logger.debug("Skipping self-referential relationship",
+                                   entity=source_entity_name)
+                        continue
+
+                    relationships.append(relationship_data)
+
+    return relationships
+
+
+def _build_reverse_relationship_aggregation_query(
+    source_type: str,
+    source_id: str,
+    target_type: Optional[str],
+    time_filter: Dict[str, Any],
+    filters: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Build aggregation query for INBOUND relationships (target_entities → source_entity)
+
+    This searches for events WHERE the source_entity appears as a TARGET in the data
+    """
+    # Build target entity filters (source_entity appears as target in events)
+    target_filters = _get_reverse_entity_filters(source_type, source_id)
+
+    # Build additional filters (e.g., host filter)
+    additional_filters = []
+    if filters:
+        if "host" in filters:
+            additional_filters.append({
+                "bool": {
+                    "should": [
+                        {"term": {"agent.name": filters["host"]}},
+                        {"wildcard": {"agent.name": f"*{filters['host']}*"}}
+                    ]
+                }
+            })
+        if "user" in filters:
+            additional_filters.append({
+                "bool": {
+                    "should": [
+                        {"wildcard": {"data.srcuser": f"*{filters['user']}*"}},
+                        {"wildcard": {"data.dstuser": f"*{filters['user']}*"}},
+                        {"wildcard": {"data.win.eventdata.user": f"*{filters['user']}*"}},  # ADDED: Sysmon process execution user
+                        {"wildcard": {"data.win.eventdata.targetUserName": f"*{filters['user']}*"}},
+                        {"wildcard": {"data.win.eventdata.subjectUserName": f"*{filters['user']}*"}}
+                    ]
+                }
+            })
+
+    # Build entity-specific aggregations based on source_type
+    entity_aggregations = _get_reverse_entity_aggregations(source_type)
+
+    # Build query - aggregate on SOURCE entities (those that point TO our target)
+    query = {
+        "query": {
+            "bool": {
+                "must": [time_filter] + target_filters + additional_filters
+            }
+        },
+        "aggs": {
+            "total_count": {
+                "value_count": {
+                    "field": "_id"
+                }
+            },
+            "source_entities": {
+                "terms": {
+                    "field": _get_reverse_aggregation_field(source_type),
+                    "size": 100
+                },
+                "aggs": entity_aggregations
+            }
+        }
+    }
+
+    return query
+
+
+def _get_reverse_entity_aggregations(source_type: str) -> Dict[str, Any]:
+    """
+    Get entity-specific aggregations for reverse (inbound) queries
+
+    Args:
+        source_type: The entity type we're querying (e.g., 'process', 'file')
+
+    Returns:
+        Dictionary of aggregations appropriate for this entity type's inbound relationships
+    """
+    # Common aggregations for all entity types
+    # Multiple user aggregations to capture different event types
+    common_aggs = {
+        "connected_users_auth": {
+            "terms": {
+                "field": "data.win.eventdata.targetUserName",
+                "size": 50
+            },
+            "aggs": _get_connection_sub_aggregations()
+        },
+        "connected_users_sysmon": {
+            "terms": {
+                "field": "data.win.eventdata.user",
+                "size": 50
+            },
+            "aggs": _get_connection_sub_aggregations()
+        },
+        "connected_users_subject": {
+            "terms": {
+                "field": "data.win.eventdata.subjectUserName",
+                "size": 50
+            },
+            "aggs": _get_connection_sub_aggregations()
+        },
+        "connected_hosts": {
+            "terms": {
+                "field": "agent.name",
+                "size": 50
+            },
+            "aggs": _get_connection_sub_aggregations()
+        },
+    }
+
+    # Entity-specific aggregations
+    if source_type.lower() == "process":
+        # For Process inbound: find parent processes and files involved in events
+        return {
+            **common_aggs,
+            "connected_processes": {
+                "terms": {
+                    "field": "data.win.eventdata.parentImage",  # Parent processes
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            },
+            "connected_processes_parent": {
+                "terms": {
+                    "field": "data.win.eventdata.image",  # Child processes (for reverse query)
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            },
+            "connected_files": {
+                "terms": {
+                    "field": "data.win.eventdata.targetFilename",  # Files involved in the events
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            },
+            "connected_files_loaded": {
+                "terms": {
+                    "field": "data.win.eventdata.imageLoaded",  # DLL/Image loads
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            }
+        }
+    elif source_type.lower() == "file":
+        # For File inbound: find processes and users that operated on the file
+        return {
+            **common_aggs,
+            "connected_processes": {
+                "terms": {
+                    "field": "data.win.eventdata.image",  # Processes operating on file
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            }
+        }
+    elif source_type.lower() == "user":
+        # For User inbound: find processes and hosts involved
+        return {
+            **common_aggs,
+            "connected_processes": {
+                "terms": {
+                    "field": "data.win.eventdata.image",  # Processes in user context
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            }
+        }
+    elif source_type.lower() == "host":
+        # For Host inbound: find users and processes
+        return {
+            **common_aggs,
+            "connected_processes": {
+                "terms": {
+                    "field": "data.win.eventdata.image",  # Processes on host
+                    "size": 30
+                },
+                "aggs": _get_connection_sub_aggregations()
+            }
+        }
+    else:
+        # Default: return common aggregations only
+        return common_aggs
+
+
+def _get_connection_sub_aggregations() -> Dict[str, Any]:
+    """Get common sub-aggregations for connection analysis"""
+    return {
+        "connection_types": {
+            "terms": {"field": "rule.groups", "size": 10}
+        },
+        "avg_severity": {
+            "avg": {"field": "rule.level"}
+        },
+        "temporal_distribution": {
+            "date_histogram": {
+                "field": "@timestamp",
+                "interval": "1h"
+            }
+        },
+        "latest_connection": {
+            "top_hits": {
+                "size": 1,
+                "sort": [{"@timestamp": {"order": "desc"}}],
+                "_source": [
+                    "@timestamp", "rule.description", "rule.level", "rule.id",
+                    "rule.groups", "data.win.system.eventID",
+                    "data.win.eventdata", "data"
+                ]
+            }
+        }
+    }
+
+
+def _get_reverse_entity_filters(entity_type: str, entity_id: str) -> List[Dict[str, Any]]:
+    """
+    Get filters for finding events WHERE entity appears as a TARGET
+    (for inbound relationship queries)
+    """
+    filters = []
+
+    if entity_type.lower() == "process":
+        # Find events where this process is the TARGET
+        filters.append({
+            "bool": {
+                "should": [
+                    # Process as child/target (parent created this process)
+                    {"wildcard": {"data.win.eventdata.image": f"*{entity_id}*"}},
+                    # Process as target in operations
+                    {"wildcard": {"data.win.eventdata.targetImage": f"*{entity_id}*"}},
+                    {"wildcard": {"data.process": f"*{entity_id}*"}}
+                ]
+            }
+        })
+    elif entity_type.lower() == "file":
+        # Find events where this file is the TARGET
+        filters.append({
+            "bool": {
+                "should": [
+                    {"wildcard": {"data.win.eventdata.targetFilename": f"*{entity_id}*"}},
+                    {"wildcard": {"data.file": f"*{entity_id}*"}}
+                ]
+            }
+        })
+    elif entity_type.lower() == "user":
+        # Find events where this user is the TARGET
+        filters.append({
+            "bool": {
+                "should": [
+                    {"wildcard": {"data.win.eventdata.targetUserName": f"*{entity_id}*"}},
+                    {"wildcard": {"data.dstuser": f"*{entity_id}*"}}
+                ]
+            }
+        })
+    elif entity_type.lower() == "host":
+        # Find events where this host is the TARGET
+        filters.append({
+            "bool": {
+                "should": [
+                    {"term": {"agent.name": entity_id}},
+                    {"wildcard": {"agent.name": f"*{entity_id}*"}}
+                ]
+            }
+        })
+
+    return filters
+
+
+def _get_reverse_aggregation_field(entity_type: str) -> str:
+    """
+    Get the field to aggregate on for reverse queries
+    (find SOURCE entities that point TO the target)
+    """
+    field_mapping = {
+        "process": "data.win.eventdata.parentImage",  # Parent processes
+        "file": "data.win.eventdata.image",            # Processes operating on file
+        "user": "data.win.eventdata.subjectUserName",  # Users acting on target user
+        "host": "data.win.eventdata.image"             # Processes/entities on host
+    }
+    return field_mapping.get(entity_type.lower(), "agent.name")
 
 
 def _get_entity_filters(entity_type: str, entity_id: Optional[str]) -> List[Dict[str, Any]]:
@@ -384,6 +725,7 @@ def _get_entity_filters(entity_type: str, entity_id: Optional[str]) -> List[Dict
                 "should": [
                     {"wildcard": {"data.srcuser": f"*{entity_id}*"}},
                     {"wildcard": {"data.dstuser": f"*{entity_id}*"}},
+                    {"wildcard": {"data.win.eventdata.user": f"*{entity_id}*"}},  # ADDED: Sysmon process execution user
                     {"wildcard": {"data.win.eventdata.targetUserName": f"*{entity_id}*"}},
                     {"wildcard": {"data.win.eventdata.subjectUserName": f"*{entity_id}*"}}
                 ]
@@ -404,10 +746,10 @@ def _get_entity_filters(entity_type: str, entity_id: Optional[str]) -> List[Dict
 
 
 def _get_entity_field(entity_type: str) -> str:
-    """Get the primary field for entity type"""
+    """Get the primary field for entity type used in aggregation grouping"""
     field_mapping = {
         "host": "agent.name",
-        "user": "data.win.eventdata.targetUserName", 
+        "user": "data.win.eventdata.user",  # FIXED: Use Sysmon process execution user field (was targetUserName)
         "process": "data.win.eventdata.image",
         "file": "data.win.eventdata.targetFilename"
     }
