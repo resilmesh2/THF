@@ -202,7 +202,7 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 class InvestigateEntityTool(WazuhBaseTool):
     """Tool for investigating specific entities"""
     name: str = "investigate_entity"
-    description: str = "Get alerts, activity, status, or details ABOUT a single entity (host, user, process, file, ip). Use for: 'what alerts does X have?', 'show status/details OF X'. Returns entity properties and alert summaries. NOT for relationships between entities - use map_relationships for 'what did X create/access/spawn'."
+    description: str = "Get COMPLETE ANALYZED alerts for a single entity (host, user, process, file, ip). Returns FULL analysis including: total alerts, severity distribution, top rules, timeline breakdown, and security insights. This is a ONE-CALL solution - do NOT call again to 'analyze' the results. Use for: 'show me alerts on host X', 'what alerts does X have?'. NOT for relationships - use map_relationships for 'what did X create/spawn'."
     args_schema: Type[InvestigateEntitySchema] = InvestigateEntitySchema
     
     def _run(

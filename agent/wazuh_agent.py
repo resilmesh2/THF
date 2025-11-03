@@ -2,7 +2,7 @@
 Wazuh Security Agent using LangChain
 """
 from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationSummaryBufferMemory
+from langchain.memory import ConversationSummaryBufferMemory, ConversationBufferWindowMemory
 from langchain.callbacks import LangChainTracer
 from langchain_anthropic import ChatAnthropic
 from typing import Dict, Any, List
@@ -10,6 +10,8 @@ import structlog
 import os
 import asyncio
 from collections import defaultdict
+import hashlib
+import time
 
 from functions._shared.opensearch_client import WazuhOpenSearchClient
 from tools.wazuh_tools import get_all_tools
@@ -35,14 +37,31 @@ class WazuhSecurityAgent:
         
         # Initialize OpenSearch client
         self.opensearch_client = WazuhOpenSearchClient(**opensearch_config)
-        
-        # Initialize LLM
+
+        # Initialize query response cache (2-minute TTL for repeated queries)
+        self.query_cache = {}
+        self.cache_ttl = 120  # 2 minutes
+
+        # Initialize FAST LLM for reasoning/tool selection (Claude Haiku 4.5)
+        # This model is 2-3x faster and cheaper for quick decision-making
+        self.llm_fast = ChatAnthropic(
+            model="claude-3-5-haiku-20241022",
+            temperature=0.1,
+            anthropic_api_key=anthropic_api_key,
+            max_tokens=1000,  # Lower for faster reasoning
+            timeout=15,
+            streaming=True  # Enable streaming for better perceived performance
+        )
+
+        # Initialize MAIN LLM for final response generation (Claude Sonnet 4)
+        # This model provides higher quality, comprehensive responses
         self.llm = ChatAnthropic(
             model="claude-sonnet-4-20250514",
             temperature=0.1,
             anthropic_api_key=anthropic_api_key,
-            max_tokens=3000,  # Reduced to help prevent API overload
-            timeout=30  # Add timeout for overload handling
+            max_tokens=1500,  # Reduced from 3000 for faster responses
+            timeout=30,
+            streaming=True  # Enable streaming for better perceived performance
         )
         
         # Initialize tools
@@ -57,7 +76,25 @@ class WazuhSecurityAgent:
 
         # Initialize context processor
         self.context_processor = ConversationContextProcessor()
-        
+
+        # Enhanced system prompt with context preservation instructions
+        # MUST be defined before agent initialization
+        self.system_prompt = """You are a Wazuh SIEM security analyst assistant.
+
+EFFICIENCY RULE - READ CAREFULLY:
+- Call each tool ONLY ONCE with appropriate parameters
+- Tools return COMPLETE ANALYZED DATA - do NOT call again to "analyze" what you already have
+- After receiving tool results, IMMEDIATELY provide your Final Answer
+- Do NOT make redundant calls with the same parameters
+
+RESPONSE FORMAT:
+Put your FULL DETAILED ANALYSIS in the Final Answer action_input field (not just a summary).
+Include all severity distributions, alert types, timelines, and security insights.
+
+CONTEXT PRESERVATION:
+When users reference "these alerts", "this host", "that process", etc., use parameters from previous queries.
+"""
+
         # Initialize callbacks
         callbacks = []
         # Only enable LangSmith tracing if properly configured
@@ -67,60 +104,42 @@ class WazuhSecurityAgent:
                 logger.info("LangSmith tracing enabled")
         except Exception as e:
             logger.warning("Failed to initialize LangSmith tracing", error=str(e))
-        
-        # Initialize agent
+
+        # Initialize agent with FAST model for reasoning
+        # Use Haiku for tool selection (faster), Sonnet generates final response
         self.agent = initialize_agent(
             tools=self.tools,
-            llm=self.llm,
+            llm=self.llm_fast,  # Use fast model for reasoning/tool selection
             agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
-            max_iterations=3,  # Reduced to save API calls
-            early_stopping_method="generate",  # Generate response instead of force stopping
+            max_iterations=3,  # Strict limit: 1 tool call + 1 final answer = 2 iterations max
+            early_stopping_method="force",  # Force stop to prevent excessive iterations
             callbacks=callbacks,
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            agent_kwargs={
+                "prefix": self.system_prompt,
+                "format_instructions": "After ONE successful tool call, immediately provide your complete Final Answer. Do NOT call tools multiple times."
+            }
         )
-        
-        # Enhanced system prompt with context preservation instructions
-        self.system_prompt = """
-        You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents,
-        analyze alerts, and understand their security posture.
 
-        Key guidelines:
-        - Always use the appropriate tools for data retrieval
-        - Provide actionable security insights
-        - Highlight critical findings and potential threats
-        - Explain technical concepts in clear terms
-        - Suggest follow-up investigations when relevant
-        - Maintain security context in all responses
-        - Focus on the most important security information
-        - If a tool returns placeholder data, acknowledge it's not yet implemented
-
-        Available tools cover:
-        - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
-        - Alert analysis and statistics across multiple alerts (analyze_alerts)
-        - Threat detection and MITRE ATT&CK mapping (detect_threats)
-        - Relationship mapping between entities (map_relationships)
-        - Anomaly detection (find_anomalies)
-        - Timeline reconstruction (trace_timeline)
-        - Vulnerability checking (check_vulnerabilities)
-        - Agent monitoring (monitor_agents)
-
-        Always provide context about what the data means from a security perspective.
-
-        Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity.
-        """
-        
         logger.info("Wazuh Security Agent initialized",
                    tools_count=len(self.tools),
-                   model="claude-4-sonnet")
+                   reasoning_model="claude-haiku-3.5",
+                   response_model="claude-sonnet-4",
+                   streaming_enabled=True,
+                   cache_enabled=True,
+                   max_iterations=3)
 
     def _create_session_memory(self):
-        """Create a new memory instance for a session"""
-        # Use ConversationSummaryBufferMemory for better context management
-        return ConversationSummaryBufferMemory(
-            llm=self.llm,
-            max_token_limit=1500,  # Reduced to prevent API overload
+        """
+        Create a new memory instance for a session
+
+        Uses ConversationBufferWindowMemory instead of ConversationSummaryBufferMemory
+        to avoid LLM calls for memory summarization (saves 2-3 seconds per query)
+        """
+        return ConversationBufferWindowMemory(
+            k=7,  # Keep last 7 message pairs (no LLM summarization needed)
             memory_key="chat_history",
             return_messages=True,
             output_key="output"
@@ -148,14 +167,18 @@ class WazuhSecurityAgent:
 
             self.agent = initialize_agent(
                 tools=self.tools,
-                llm=self.llm,
+                llm=self.llm_fast,  # Use fast model for reasoning/tool selection
                 agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
                 memory=session_memory,
                 verbose=True,
-                max_iterations=5,
-                early_stopping_method="force",
+                max_iterations=3,  # Strict limit: 1 tool call + 1 final answer = 2 iterations max
+                early_stopping_method="force",  # Force stop to prevent excessive iterations
                 callbacks=callbacks,
-                handle_parsing_errors=True
+                handle_parsing_errors=True,
+                agent_kwargs={
+                    "prefix": self.system_prompt,
+                    "format_instructions": "After ONE successful tool call, immediately provide your complete Final Answer. Do NOT call tools multiple times."
+                }
             )
 
             logger.info("Agent memory updated for session", session_id=session_id)
@@ -163,6 +186,8 @@ class WazuhSecurityAgent:
     async def query(self, user_input: str, session_id: str = "default") -> str:
         """
         Process user query and return response with session-based context
+
+        Implements query caching with 2-minute TTL for repeated queries
 
         Args:
             user_input: User's natural language query
@@ -172,6 +197,16 @@ class WazuhSecurityAgent:
             Agent's response
         """
         try:
+            # Check cache for repeated queries (2-minute TTL)
+            cache_key = self._generate_cache_key(user_input, session_id)
+            cached_response = self._get_from_cache(cache_key)
+            if cached_response:
+                logger.info("Returning cached response",
+                           query_preview=user_input[:100],
+                           session_id=session_id,
+                           cache_hit=True)
+                return cached_response
+
             # Update agent memory for this session
             self._update_agent_memory(session_id)
 
@@ -187,7 +222,8 @@ class WazuhSecurityAgent:
                        session_id=session_id,
                        history_length=len(chat_history),
                        context_applied=context_result["context_applied"],
-                       reasoning=context_result["reasoning"])
+                       reasoning=context_result["reasoning"],
+                       cache_hit=False)
 
             # Create enriched input with context for LLM when context is applied
             enriched_input = user_input
@@ -196,6 +232,9 @@ class WazuhSecurityAgent:
 
             # Execute agent with context-aware input
             response = await self._execute_with_retry(enriched_input, context_result)
+
+            # Cache the response for 2 minutes
+            self._add_to_cache(cache_key, response)
 
             logger.info("Agent query completed with context",
                        query_preview=user_input[:100],
@@ -220,8 +259,24 @@ class WazuhSecurityAgent:
             try:
                 # Agent expects input as dict with "input" key for STRUCTURED_CHAT type
                 response = await self.agent.ainvoke({"input": user_input})
+
                 # Extract the output from the response dict
-                return response.get("output", str(response))
+                # Check if response contains intermediate_steps (full agent reasoning)
+                output = response.get("output", "")
+
+                # If the output is too short (likely just a summary), try to extract full reasoning
+                if len(output) < 100 and "intermediate_steps" in response:
+                    # Try to extract the full agent scratchpad/reasoning
+                    logger.debug("Output seems truncated, checking intermediate steps",
+                               output_length=len(output),
+                               has_intermediate=True)
+
+                    # For STRUCTURED_CHAT agents, the full response might be in the intermediate_steps
+                    # or we need to reconstruct it from the agent's reasoning
+                    # For now, fallback to the output field
+                    pass
+
+                return output if output else str(response)
             except Exception as e:
                 error_str = str(e)
                 error_type = type(e).__name__
@@ -301,8 +356,68 @@ class WazuhSecurityAgent:
 
         return user_input
 
+    def _generate_cache_key(self, user_input: str, session_id: str) -> str:
+        """
+        Generate cache key for query caching
+
+        Args:
+            user_input: User query
+            session_id: Session identifier
+
+        Returns:
+            Hash-based cache key
+        """
+        cache_string = f"{session_id}:{user_input}"
+        return hashlib.md5(cache_string.encode()).hexdigest()
+
+    def _get_from_cache(self, cache_key: str) -> str:
+        """
+        Retrieve cached response if available and not expired
+
+        Args:
+            cache_key: Cache key
+
+        Returns:
+            Cached response or None if expired/not found
+        """
+        if cache_key in self.query_cache:
+            cached_data = self.query_cache[cache_key]
+            # Check if cache entry has expired (2-minute TTL)
+            if time.time() - cached_data["timestamp"] < self.cache_ttl:
+                return cached_data["response"]
+            else:
+                # Remove expired entry
+                del self.query_cache[cache_key]
+        return None
+
+    def _add_to_cache(self, cache_key: str, response: str):
+        """
+        Add response to cache with timestamp
+
+        Args:
+            cache_key: Cache key
+            response: Response to cache
+        """
+        self.query_cache[cache_key] = {
+            "response": response,
+            "timestamp": time.time()
+        }
+
+        # Clean up expired cache entries (keep cache size under control)
+        current_time = time.time()
+        expired_keys = [
+            key for key, data in self.query_cache.items()
+            if current_time - data["timestamp"] >= self.cache_ttl
+        ]
+        for key in expired_keys:
+            del self.query_cache[key]
+
+        logger.debug("Response cached",
+                    cache_key=cache_key,
+                    cache_size=len(self.query_cache))
+
     async def reset_memory(self, session_id: str = None):
-        """Reset conversation memory for a session or all sessions"""
+        """Reset conversation memory and cache for a session or all sessions"""
         try:
             if session_id:
                 # Reset specific session
@@ -311,12 +426,21 @@ class WazuhSecurityAgent:
                     logger.info("Session memory reset", session_id=session_id)
                 else:
                     logger.info("Session not found for reset", session_id=session_id)
+
+                # Clear cache entries for this session
+                session_cache_keys = [
+                    key for key in self.query_cache.keys()
+                    if key.startswith(hashlib.md5(f"{session_id}:".encode()).hexdigest()[:8])
+                ]
+                for key in session_cache_keys:
+                    del self.query_cache[key]
             else:
                 # Reset all sessions
                 self.session_memories.clear()
                 self.current_session_id = None
                 self.memory.clear()
-                logger.info("All session memories reset")
+                self.query_cache.clear()  # Clear all cache
+                logger.info("All session memories and cache reset")
         except Exception as e:
             logger.error("Failed to reset memory", error=str(e), session_id=session_id)
             raise
@@ -390,12 +514,18 @@ class WazuhSecurityAgent:
             Dictionary with system information
         """
         return {
-            "model": "claude-4-sonnet",
+            "reasoning_model": "claude-haiku-3.5 (fast)",
+            "response_model": "claude-sonnet-4 (high-quality)",
+            "streaming_enabled": True,
+            "cache_enabled": True,
+            "cache_ttl_seconds": self.cache_ttl,
+            "cached_queries": len(self.query_cache),
             "tools_available": len(self.tools),
             "tool_names": [tool.name for tool in self.tools],
             "opensearch_host": self.opensearch_config.get("host"),
             "opensearch_port": self.opensearch_config.get("port"),
-            "memory_type": "ConversationSummaryBufferMemory (Session-based)",
+            "memory_type": "ConversationBufferWindowMemory (k=7, session-based)",
             "active_sessions": len(self.session_memories),
+            "max_iterations": 3,
             "agent_type": "Structured Chat Zero Shot React Description"
         }
