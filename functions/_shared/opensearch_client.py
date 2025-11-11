@@ -203,12 +203,20 @@ class WazuhOpenSearchClient:
             from .time_parser import build_single_time_range_filter, build_time_range_filter
 
             # Handle absolute time ranges (containing separators)
-            if any(sep in time_range.lower() for sep in [" to ", " until ", "-"]):
-                # Parse as start-end range
-                separators = [" to ", " until ", "-"]
-                for sep in separators:
-                    if sep in time_range.lower():
+            separators = [" to ", " until ", "/", "-"]
+            for sep in separators:
+                # For "/" separator, don't use lowercase check
+                if sep == "/":
+                    if sep in time_range:
                         parts = time_range.split(sep)
+                        if len(parts) == 2:
+                            start_time = parts[0].strip()
+                            end_time = parts[1].strip()
+                            return build_time_range_filter(start_time, end_time)
+                else:
+                    # For word separators, use lowercase check
+                    if sep in time_range.lower():
+                        parts = time_range.split(sep, 1)  # Split only on first occurrence
                         if len(parts) == 2:
                             start_time = parts[0].strip()
                             end_time = parts[1].strip()

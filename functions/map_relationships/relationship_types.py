@@ -11,7 +11,7 @@ SYSMON_EVENT_RELATIONSHIPS = {
     "5": "terminated",        # Process Terminated
     "6": "loaded",            # Driver Loaded
     "7": "loaded",            # Image/DLL Loaded
-    "8": "accessed",          # CreateRemoteThread
+    "8": "injected_into",     # CreateRemoteThread (Process Injection)
     "10": "accessed",         # Process Access
     "11": "creates",          # File Create
     "12": "creates",          # Registry Create/Delete
@@ -199,7 +199,7 @@ def _validate_relationship_for_pair(
         "owned_by": [("file", "user")],
 
         # Generic relationships (multiple valid pairs)
-        "accessed": [("process", "file"), ("user", "file"), ("user", "host"), ("process", "host")],
+        "accessed": [("process", "file"), ("user", "file"), ("user", "host"), ("process", "host"), ("process", "process")],
         "connected_to": [("process", "host"), ("process", "process"), ("user", "host"), ("file", "host")],
         "blocked_connection_to": [("process", "host")],
         "queried": [("process", "host")],

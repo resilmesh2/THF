@@ -198,10 +198,14 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
                 }
             })
 
+    # Add exists filter for the entity field we're aggregating on
+    entity_field = _get_entity_field(source_type)
+    field_exists_filter = {"exists": {"field": entity_field}}
+
     query = {
         "query": {
             "bool": {
-                "must": [time_filter] + source_filters + additional_filters
+                "must": [time_filter, field_exists_filter] + source_filters + additional_filters
             }
         },
         "aggs": {
@@ -259,6 +263,13 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
                         },
                         "aggs": _get_connection_sub_aggregations()
                     },
+                    "connected_processes_source": {
+                        "terms": {
+                            "field": "data.win.eventdata.sourceImage",  # Source processes (injectors, accessors)
+                            "size": 30
+                        },
+                        "aggs": _get_connection_sub_aggregations()
+                    },
                     "connected_files": {
                         "terms": {
                             "field": "data.win.eventdata.targetFilename",
@@ -308,6 +319,7 @@ def _process_aggregation_buckets(
         "connected_hosts": "host",
         "connected_processes": "process",           # Child processes (image)
         "connected_processes_parent": "process",    # Parent processes (parentImage)
+        "connected_processes_source": "process",    # Source processes (injectors, accessors)
         "connected_files": "file",                  # File operations (targetFilename)
         "connected_files_loaded": "file"            # DLL/Image loads (imageLoaded)
     }
@@ -460,11 +472,15 @@ def _build_reverse_relationship_aggregation_query(
     # Build entity-specific aggregations based on source_type
     entity_aggregations = _get_reverse_entity_aggregations(source_type)
 
+    # Add exists filter for the field we're aggregating on
+    reverse_field = _get_reverse_aggregation_field(source_type)
+    reverse_field_exists_filter = {"exists": {"field": reverse_field}}
+
     # Build query - aggregate on SOURCE entities (those that point TO our target)
     query = {
         "query": {
             "bool": {
-                "must": [time_filter] + target_filters + additional_filters
+                "must": [time_filter, reverse_field_exists_filter] + target_filters + additional_filters
             }
         },
         "aggs": {
