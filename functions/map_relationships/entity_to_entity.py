@@ -167,6 +167,49 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         raise Exception(f"Failed to map entity relationships: {str(e)}")
 
 
+def _get_flexible_aggregation_terms(source_type: str, target_type: Optional[str]) -> Dict[str, Any]:
+    """
+    Get flexible aggregation terms that handle multiple process field types
+
+    For process-to-process queries, Event ID 8 (injection) uses sourceImage,
+    while Event ID 1 (process create) uses image. This function returns
+    aggregation terms that coalesce these fields.
+
+    Args:
+        source_type: Source entity type
+        target_type: Target entity type
+
+    Returns:
+        Dict with either standard "field" or script-based "script" aggregation
+    """
+    if source_type.lower() == "process" and target_type and target_type.lower() == "process":
+        # Use script to coalesce process fields: prefer image, fallback to sourceImage
+        # This captures both Event ID 1 (image) and Event ID 8 (sourceImage)
+        return {
+            "script": {
+                "source": """
+                    if (doc.containsKey('data.win.eventdata.image.keyword') &&
+                        doc['data.win.eventdata.image.keyword'].size() > 0) {
+                        return doc['data.win.eventdata.image.keyword'].value;
+                    } else if (doc.containsKey('data.win.eventdata.sourceImage.keyword') &&
+                               doc['data.win.eventdata.sourceImage.keyword'].size() > 0) {
+                        return doc['data.win.eventdata.sourceImage.keyword'].value;
+                    } else {
+                        return 'unknown';
+                    }
+                """,
+                "lang": "painless"
+            },
+            "size": 100
+        }
+    else:
+        # Standard field-based aggregation for other entity types
+        return {
+            "field": _get_entity_field(source_type),
+            "size": 100
+        }
+
+
 def _build_relationship_aggregation_query(source_type: str, source_id: Optional[str], target_type: Optional[str], time_filter: Dict[str, Any], filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Build aggregation query for relationship mapping"""
 
@@ -199,8 +242,30 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
             })
 
     # Add exists filter for the entity field we're aggregating on
+    # For process-to-process queries, we need to be flexible to capture all process events:
+    # - Event ID 1 (Process Create): has "image" and "parentImage"
+    # - Event ID 8 (CreateRemoteThread/Injection): has "sourceImage" and "targetImage" (NO "image")
+    # - Event ID 10 (Process Access): has "sourceImage" and "targetImage"
+    # Solution: For process queries, accept events with ANY process field
     entity_field = _get_entity_field(source_type)
-    field_exists_filter = {"exists": {"field": entity_field}}
+
+    if source_type.lower() == "process" and target_type and target_type.lower() == "process":
+        # Process-to-process: accept events with ANY process-related field
+        # This captures Event ID 8 (sourceImage/targetImage), Event ID 1 (image/parentImage), etc.
+        field_exists_filter = {
+            "bool": {
+                "should": [
+                    {"exists": {"field": "data.win.eventdata.image"}},           # Event ID 1 (main process)
+                    {"exists": {"field": "data.win.eventdata.sourceImage"}},     # Event ID 8, 10 (injector/accessor)
+                    {"exists": {"field": "data.win.eventdata.targetImage"}},     # Event ID 8, 10 (victim/target)
+                    {"exists": {"field": "data.win.eventdata.parentImage"}}      # Event ID 1 (parent process)
+                ],
+                "minimum_should_match": 1
+            }
+        }
+    else:
+        # Other entity types: use standard exists filter
+        field_exists_filter = {"exists": {"field": entity_field}}
 
     query = {
         "query": {
@@ -215,10 +280,9 @@ def _build_relationship_aggregation_query(source_type: str, source_id: Optional[
                 }
             },
             "source_entities": {
-                "terms": {
-                    "field": _get_entity_field(source_type),
-                    "size": 100
-                },
+                # For process-to-process: use script to coalesce process fields
+                # This handles Event ID 8 (sourceImage) and Event ID 1 (image)
+                "terms": _get_flexible_aggregation_terms(source_type, target_type),
                 "aggs": {
                     # Multiple user aggregations to capture different event types
                     "connected_users_auth": {
@@ -473,8 +537,26 @@ def _build_reverse_relationship_aggregation_query(
     entity_aggregations = _get_reverse_entity_aggregations(source_type)
 
     # Add exists filter for the field we're aggregating on
+    # For process-to-process queries (inbound), we need the same flexibility as outbound
+    # to capture Event ID 8 (sourceImage/targetImage) and other process events
     reverse_field = _get_reverse_aggregation_field(source_type)
-    reverse_field_exists_filter = {"exists": {"field": reverse_field}}
+
+    if source_type.lower() == "process" and target_type and target_type.lower() == "process":
+        # Process-to-process (inbound): accept events with ANY process-related field
+        reverse_field_exists_filter = {
+            "bool": {
+                "should": [
+                    {"exists": {"field": "data.win.eventdata.image"}},           # Event ID 1
+                    {"exists": {"field": "data.win.eventdata.sourceImage"}},     # Event ID 8, 10
+                    {"exists": {"field": "data.win.eventdata.targetImage"}},     # Event ID 8, 10
+                    {"exists": {"field": "data.win.eventdata.parentImage"}}      # Event ID 1
+                ],
+                "minimum_should_match": 1
+            }
+        }
+    else:
+        # Other entity types: use standard exists filter
+        reverse_field_exists_filter = {"exists": {"field": reverse_field}}
 
     # Build query - aggregate on SOURCE entities (those that point TO our target)
     query = {
@@ -490,16 +572,60 @@ def _build_reverse_relationship_aggregation_query(
                 }
             },
             "source_entities": {
-                "terms": {
-                    "field": _get_reverse_aggregation_field(source_type),
-                    "size": 100
-                },
+                # For process-to-process inbound: use script to handle targetImage (Event ID 8 victims)
+                "terms": _get_flexible_reverse_aggregation_terms(source_type, target_type),
                 "aggs": entity_aggregations
             }
         }
     }
 
     return query
+
+
+def _get_flexible_reverse_aggregation_terms(source_type: str, target_type: Optional[str]) -> Dict[str, Any]:
+    """
+    Get flexible aggregation terms for reverse (inbound) queries
+
+    For process-to-process inbound queries, we aggregate on the SOURCE of the relationship
+    (the entity pointing TO our target). Event ID 8 uses targetImage field.
+
+    Args:
+        source_type: Source entity type
+        target_type: Target entity type
+
+    Returns:
+        Dict with either standard "field" or script-based "script" aggregation
+    """
+    if source_type.lower() == "process" and target_type and target_type.lower() == "process":
+        # For inbound process queries, aggregate on whatever process field exists
+        # Event ID 8: targetImage (the victim process) appears in our filter
+        # We aggregate on parentImage or image (the sources pointing to our target)
+        return {
+            "script": {
+                "source": """
+                    if (doc.containsKey('data.win.eventdata.parentImage.keyword') &&
+                        doc['data.win.eventdata.parentImage.keyword'].size() > 0) {
+                        return doc['data.win.eventdata.parentImage.keyword'].value;
+                    } else if (doc.containsKey('data.win.eventdata.image.keyword') &&
+                               doc['data.win.eventdata.image.keyword'].size() > 0) {
+                        return doc['data.win.eventdata.image.keyword'].value;
+                    } else if (doc.containsKey('data.win.eventdata.sourceImage.keyword') &&
+                               doc['data.win.eventdata.sourceImage.keyword'].size() > 0) {
+                        return doc['data.win.eventdata.sourceImage.keyword'].value;
+                    } else {
+                        return 'unknown';
+                    }
+                """,
+                "lang": "painless"
+            },
+            "size": 100
+        }
+    else:
+        # Standard field-based aggregation for other entity types
+        return {
+            "field": _get_reverse_aggregation_field(source_type),
+            "size": 100
+        }
 
 
 def _get_reverse_entity_aggregations(source_type: str) -> Dict[str, Any]:

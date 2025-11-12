@@ -160,20 +160,27 @@ def build_time_range_filter(start_time: str, end_time: str) -> Dict[str, Any]:
 
 def build_single_time_range_filter(time_range: str) -> Dict[str, Any]:
     """Build single time range filter (e.g., 'past 3 hours') for OpenSearch queries"""
+    import structlog
+    logger = structlog.get_logger()
+
     parsed_time = parse_time_to_opensearch(time_range)
+    logger.debug("build_single_time_range_filter", time_range=time_range, parsed_time=parsed_time)
 
     # If the parsed time is an absolute date (contains year-month-day with time), search the whole day
     if re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$', parsed_time):
         # Extract date and create range for entire day
+        # Include milliseconds and UTC timezone marker for precise matching with Wazuh data
         date_part = parsed_time.split('T')[0]
-        return {
+        result = {
             "range": {
                 "@timestamp": {
-                    "gte": f"{date_part}T00:00:00",
-                    "lte": f"{date_part}T23:59:59"
+                    "gte": f"{date_part}T00:00:00.000Z",
+                    "lte": f"{date_part}T23:59:59.999Z"
                 }
             }
         }
+        logger.debug("Matched absolute date pattern", date_part=date_part, result=result)
+        return result
 
     # For relative times (now-Xh), search from that time to now
     return {
