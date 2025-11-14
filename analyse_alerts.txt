@@ -1,0 +1,57 @@
+
+1. C3 Intent
+- Analyse_alerts
+
+2. Sub-action
+- Counting
+
+3. OpenSearch DSL Query Sub-compositions
+- OpenSearch DSL Query with Boolean Logic & MUST conditions
+Filters: Filtered aggregations by criteria:
+●
+Severity breakdown
+●
+Rule type breakdown
+Aggregations:
+Terms: count alerts by a unique value and count all occurrences
+Metric Cardinality: Unique entity
+●
+Unique users
+●
+Unique hosts
+●
+Unique rules
+Date Histogram: group alerts by hourly counts, daily counts
+
+4. Resulting Security Insights
+• Alert Volume Metrics: Total and unique event counts
+• Entity Activity Levels: Unique host/user/rule counting
+• Time-Based Activity: Temporal-based alert volume patterns
+• Severity Breakdowns: Alert count by risk level
+
+5. Sample Queries
+• "Count alerts by rule group for the last 24 hours."
+• "Count alerts for each agent over the past two days."
+
+NOW!
+2. Sub-action
+- Filtering
+
+3. OpenSearch DSL Query Sub-compositions
+- OpenSearch DSL Query with Boolean logic and complex filter combinations
+Aggregations:
+Terms:
+●
+Filtered terms: terms aggregations of alerts within filtered contexts
+Metric Aggregations:
+●
+Filtered counts: value count with filtered contexts
+
+4. Resulting Security Insights
+Targeted Threat Identification: Specific attack pattern isolation
+• Noise Reduction: Relevant alert subset extraction
+• Compliance Reporting: Regulation-specific alert filtering
+
+5. Sample Queries
+"Filter the dataset for alerts with severity level 15."
+"Find alerts with process name 'powershell.exe'."

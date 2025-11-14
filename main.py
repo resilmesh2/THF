@@ -64,6 +64,7 @@ class QueryResponse(BaseModel):
     response: str
     session_id: str
     status: str = "success"
+    timing: Optional[dict] = None
 
 class ErrorResponse(BaseModel):
     """Error response model"""
@@ -109,21 +110,45 @@ async def query_agent(request: QueryRequest):
         raise HTTPException(status_code=503, detail="Agent not initialized")
     
     try:
-        logger.info("Processing query", 
+        logger.info("Processing query",
                    query=request.query[:100],  # Log first 100 chars
                    session_id=request.session_id)
-        
+
         # Process query with agent including session context
-        response = await agent.query(request.query, request.session_id)
-        
-        logger.info("Query processed successfully", 
+        result = await agent.query(request.query, request.session_id)
+
+        # Extract response and timing from result dict
+        response_text = result.get("response", "")
+        timing_data = result.get("timing", {})
+
+        # Log timing summary to terminal (wrapped in try-catch to prevent blocking response)
+        try:
+            if timing_data and timing_data.get("total_time", 0) > 0:
+                total_time = timing_data.get("total_time", 0)
+                llm_time = timing_data.get("total_llm_time", 0)
+                tool_time = timing_data.get("total_tool_time", 0)
+
+                print(f"\n{'='*80}")
+                print(f"QUERY TIMING SUMMARY")
+                print(f"{'='*80}")
+                print(f"Total Time:        {total_time:.2f}s")
+                print(f"LLM Time:          {llm_time:.2f}s ({llm_time/total_time*100:.1f}%)")
+                print(f"Tool Time:         {tool_time:.2f}s ({tool_time/total_time*100:.1f}%)")
+                print(f"Iterations:        {timing_data.get('iteration_count', 0)}")
+                print(f"{'='*80}\n")
+        except Exception as timing_error:
+            logger.warning("Failed to print timing summary", error=str(timing_error))
+
+        logger.info("Query processed successfully",
                    session_id=request.session_id,
-                   response_length=len(response))
-        
+                   response_length=len(response_text),
+                   total_time=timing_data.get("total_time", 0))
+
         return QueryResponse(
-            response=response,
+            response=response_text,
             session_id=request.session_id,
-            status="success"
+            status="success",
+            timing=timing_data
         )
         
     except Exception as e:
