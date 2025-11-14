@@ -75,7 +75,6 @@ class WazuhSecurityAgent:
             agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
-            max_iterations=3,  # Reduced to save API calls
             early_stopping_method="generate",  # Generate response instead of force stopping
             callbacks=callbacks,
             handle_parsing_errors=True
@@ -152,8 +151,7 @@ class WazuhSecurityAgent:
                 agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
                 memory=session_memory,
                 verbose=True,
-                max_iterations=5,
-                early_stopping_method="force",
+                early_stopping_method="generate",  # Generate response instead of force stopping
                 callbacks=callbacks,
                 handle_parsing_errors=True
             )
