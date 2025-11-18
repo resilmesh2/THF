@@ -311,7 +311,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         # Extract parameters
-        threshold = params.get("threshold")  # Only used for fallback when no RCF data
+        threshold = params.get("threshold")  # User-provided threshold - ONLY used as fallback when no RCF baseline data exists
         metric = params.get("metric", "alert_count")  # What to measure
         timeframe = params.get("timeframe", "24h")
         baseline = params.get("baseline", "17d")  # Baseline period for comparison
@@ -336,17 +336,18 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
         rcf_baselines = await get_anomaly_results_via_search(baseline)
         
         # Use RCF baselines if available, otherwise fall back to static values
-        if (rcf_baselines and 
-            rcf_baselines.get("results_count", 0) > 0 and 
+        if (rcf_baselines and
+            rcf_baselines.get("results_count", 0) > 0 and
             "total_alerts" in rcf_baselines):
-            
-            # Dynamic thresholds based on RCF learning
+
+            # Dynamic thresholds calculated from RCF baseline analysis
+            # These thresholds OVERRIDE the user-provided threshold value for better accuracy
             try:
-                alert_threshold = rcf_baselines["total_alerts"]["upper_threshold"]
-                severity_threshold = rcf_baselines["severity_sum"]["upper_threshold"]
-                host_diversity_threshold = rcf_baselines["host_diversity"]["upper_threshold"]
-                user_diversity_threshold = rcf_baselines["user_diversity"]["upper_threshold"]
-                high_severity_threshold = rcf_baselines["high_severity_alerts"]["upper_threshold"]
+                alert_threshold = rcf_baselines["total_alerts"]["upper_threshold"]  # RCF-learned threshold for alert count
+                severity_threshold = rcf_baselines["severity_sum"]["upper_threshold"]  # RCF-learned threshold for severity sum
+                host_diversity_threshold = rcf_baselines["host_diversity"]["upper_threshold"]  # RCF-learned threshold for host diversity
+                user_diversity_threshold = rcf_baselines["user_diversity"]["upper_threshold"]  # RCF-learned threshold for user diversity
+                high_severity_threshold = rcf_baselines["high_severity_alerts"]["upper_threshold"]  # RCF-learned threshold for high severity
                 
                 logger.info("Using RCF-learned dynamic thresholds",
                            alert_threshold=alert_threshold,
@@ -356,19 +357,19 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                            results_count=rcf_baselines.get("results_count", 0))
                            
             except KeyError as e:
-                logger.warning("RCF baselines incomplete, falling back to static thresholds", 
-                             missing_key=str(e),
-                             available_keys=list(rcf_baselines.keys()))
+                logger.warning("RCF baselines incomplete, using static thresholds",
+                             missing_key=str(e))
                 # Fall through to static thresholds
                 rcf_baselines = {}
         
-        # Static fallback thresholds (only when RCF data unavailable)
+        # Static fallback thresholds (only used when RCF baseline data is unavailable)
+        # These use the user-provided threshold parameter as the basis for calculations
         if not rcf_baselines or rcf_baselines.get("results_count", 0) == 0:
-            alert_threshold = threshold or 50
-            severity_threshold = (threshold or 50) * 5  # Assuming avg severity ~5-7
-            host_diversity_threshold = (threshold or 50) * 0.2  # Host diversity
-            user_diversity_threshold = (threshold or 50) * 0.3  # User diversity
-            high_severity_threshold = (threshold or 50) * 0.5  # High severity alerts
+            alert_threshold = threshold or 50  # Fallback: use user threshold or default to 50
+            severity_threshold = (threshold or 50) * 5  # Fallback: assuming avg severity ~5-7
+            host_diversity_threshold = (threshold or 50) * 0.2  # Fallback: host diversity
+            user_diversity_threshold = (threshold or 50) * 0.3  # Fallback: user diversity
+            high_severity_threshold = (threshold or 50) * 0.5  # Fallback: high severity alerts
             
             fallback_reason = "no-rcf-data"
             logger.info("Using static fallback thresholds",
@@ -538,27 +539,28 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             host_rule_diversity = len(bucket.get("rule_breakdown", {}).get("buckets", []))
             
             # RCF-based anomaly detection
+            # Compare current values against learned thresholds to identify anomalies
             is_anomaly = False
             anomaly_reasons = []
             rcf_anomaly_score = 0.0
-            
+
             if rcf_baselines:
-                # Check against RCF-learned thresholds
+                # Check against RCF-learned thresholds (not user-provided threshold)
                 if alert_count > alert_threshold:
                     is_anomaly = True
-                    anomaly_reasons.append(f"Alert count {alert_count} exceeds RCF threshold {alert_threshold:.1f}")
+                    anomaly_reasons.append(f"Alert count {alert_count} exceeds RCF-learned threshold {alert_threshold:.1f}")
                     rcf_anomaly_score += 30
-                
+
                 if host_severity_sum > severity_threshold:
                     is_anomaly = True
-                    anomaly_reasons.append(f"Severity sum {host_severity_sum} exceeds RCF threshold {severity_threshold:.1f}")
+                    anomaly_reasons.append(f"Severity sum {host_severity_sum} exceeds RCF-learned threshold {severity_threshold:.1f}")
                     rcf_anomaly_score += 25
                 
                 # Remove redundant avg_severity check - already covered by severity_sum RCF baseline
                 
                 if host_rule_diversity > host_diversity_threshold:
                     is_anomaly = True
-                    anomaly_reasons.append(f"Rule diversity {host_rule_diversity} exceeds RCF threshold {host_diversity_threshold:.1f}")
+                    anomaly_reasons.append(f"Rule diversity {host_rule_diversity} exceeds RCF-learned threshold {host_diversity_threshold:.1f}")
                     rcf_anomaly_score += 15
                 
                 # Apply confidence threshold filtering if specified
@@ -778,11 +780,11 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
             
             if unique_hosts > new_host_threshold:
                 is_new_entity_anomaly = True
-                anomaly_reasons.append(f"Host count {unique_hosts} exceeds RCF threshold {new_host_threshold:.1f}")
-                
+                anomaly_reasons.append(f"Host count {unique_hosts} exceeds RCF-learned threshold {new_host_threshold:.1f}")
+
             if unique_users > new_user_threshold:
                 is_new_entity_anomaly = True
-                anomaly_reasons.append(f"User count {unique_users} exceeds RCF threshold {new_user_threshold:.1f}")
+                anomaly_reasons.append(f"User count {unique_users} exceeds RCF-learned threshold {new_user_threshold:.1f}")
             
             if is_new_entity_anomaly:
                 new_entity_anomalies.append({
@@ -813,17 +815,24 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "search_method": rcf_baselines.get("search_method", "fallback") if rcf_baselines else "fallback"
             },
             "threshold_settings": {
-                "alert_threshold": alert_threshold,
-                "severity_threshold": severity_threshold,
-                "host_diversity_threshold": host_diversity_threshold,
-                "user_diversity_threshold": user_diversity_threshold,
-                "high_severity_threshold": high_severity_threshold,
-                "failed_login_threshold": failed_login_threshold,
-                "new_host_threshold": new_host_threshold,
-                "new_user_threshold": new_user_threshold,
-                "confidence_threshold": confidence_threshold,
-                "baseline_confidence": rcf_baselines.get("confidence_scores", {}).get("mean", 0) if rcf_baselines else 0,
-                "threshold_type": "RCF-learned" if rcf_baselines else "static"
+                # Clarification section explaining threshold types and usage
+                "threshold_explanation": {
+                    "user_provided_threshold": threshold,  # The value from the query parameter
+                    "threshold_usage": "RCF-learned thresholds from baseline analysis" if rcf_baselines else "User-provided fallback threshold",
+                    "note": "RCF-learned thresholds override user-provided values when baseline data is available"
+                },
+                # Specific threshold values with clear naming (renamed for clarity)
+                "alert_count_threshold": alert_threshold,  # Threshold for total alert count
+                "severity_sum_threshold": severity_threshold,  # Threshold for cumulative severity
+                "host_diversity_threshold": host_diversity_threshold,  # Threshold for unique host count
+                "user_diversity_threshold": user_diversity_threshold,  # Threshold for unique user count
+                "high_severity_threshold": high_severity_threshold,  # Threshold for high severity alerts (level >= 8)
+                "failed_login_threshold": failed_login_threshold,  # Threshold for failed authentication attempts
+                "new_host_threshold": new_host_threshold,  # Threshold for new host appearances
+                "new_user_threshold": new_user_threshold,  # Threshold for new user appearances
+                "confidence_threshold": confidence_threshold,  # Minimum confidence level for anomaly detection
+                "baseline_confidence": rcf_baselines.get("confidence_scores", {}).get("mean", 0) if rcf_baselines else 0,  # Confidence level of RCF baseline
+                "threshold_source": "RCF-learned from baseline" if rcf_baselines else "Static fallback (user-provided or default)"  # Source of threshold values
             },
             "rcf_baselines": rcf_baselines if rcf_baselines else {},
             "host_anomalies": host_anomalies[:limit],

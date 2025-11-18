@@ -573,7 +573,7 @@ class FindAnomaliesTool(WazuhBaseTool):
                 from functions.find_anomalies.detect_behavioral import execute
                 result = await execute(self.opensearch_client, params)
                 
-            elif anomaly_type_lower in ["trend_analysis", "trends", "trending", "time_trend", "temporal_trend"]:
+            elif anomaly_type_lower in ["trend", "trend_analysis", "trends", "trending", "time_trend", "temporal_trend"]:
                 from functions.find_anomalies.detect_trend import execute
                 result = await execute(self.opensearch_client, params)
                 
