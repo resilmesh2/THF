@@ -169,5 +169,6 @@ output_results.txt
 .langsmith/
 
 # Docker
-.dockerignore
 docker-compose.override.yml
+docker-volumes/
+logs/docker/
