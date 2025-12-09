@@ -12,34 +12,6 @@ THF (Threat Hunting Framework) is a sophisticated AI-powered security analysis p
 
 The framework converts user queries into structured function calls, executes them against the Wazuh OpenSearch backend and Wazuh API, and returns actionable security insights with full context preservation across multi-turn conversations.
 
-## Features
-
-### 8 Core Security Capabilities
-
-1. **analyze_alerts** - Alert analysis with ranking, filtering, counting, distribution
-2. **investigate_entity** - Entity investigation (host, user, process, file)
-3. **detect_threats** - MITRE ATT&CK techniques, tactics, threat actors
-4. **map_relationships** - Entity relationships, activity correlation
-5. **find_anomalies** - Threshold, behavioral, trend detection
-6. **trace_timeline** - Chronological event reconstruction
-7. **check_vulnerabilities** - CVE checking and vulnerability assessment
-8. **monitor_agents** - Agent status, health, and connectivity monitoring
-
-### Example Queries
-
-Ask questions in natural language to investigate your security environment:
-
-- "Show me the top 10 hosts with most alerts this week."
-- "What alerts are there for user SYSTEM?"
-- "Find T1055 process injection techniques detected recently."
-- "Which users accessed host win10-01 in the last 24 hours?"
-- "Show me unusual login patterns from yesterday."
-- "Check for Log4Shell vulnerabilities on our Windows hosts."
-- "Which agents are disconnected right now?"
-- "Find hosts with more than 50 failed login attempts."
-- "Show me critical alerts from the last hour."
-- "What processes did powershell.exe create today?"
-
 ## Installation Instructions & Setup
 
 ### Prerequisites
@@ -130,6 +102,171 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
    Which agents are disconnected?
    ```
 
+## Features
+
+### 8 Core Security Capabilities
+
+1. **analyze_alerts** - Alert analysis with ranking, filtering, counting, distribution
+2. **investigate_entity** - Entity investigation (host, user, process, file)
+3. **detect_threats** - MITRE ATT&CK techniques, tactics, threat actors
+4. **map_relationships** - Entity relationships, activity correlation
+5. **find_anomalies** - Threshold, behavioral, trend detection
+6. **trace_timeline** - Chronological event reconstruction
+7. **check_vulnerabilities** - CVE checking and vulnerability assessment
+8. **monitor_agents** - Agent status, health, and connectivity monitoring
+
+### Example Queries
+
+Ask questions in natural language to investigate your security environment:
+
+- "Show me the top 10 hosts with most alerts this week."
+- "What alerts are there for user SYSTEM?"
+- "Find T1055 process injection techniques detected recently."
+- "Which users accessed host win10-01 in the last 24 hours?"
+- "Show me unusual login patterns from yesterday."
+- "Check for Log4Shell vulnerabilities on our Windows hosts."
+
+
+### Detailed Security Intent and Sub-Action Decomposition
+
+#### 1. Analyze Alerts
+
+| Sub-Action | Description |
+|------------|-------------|
+| **Counting** | Returns quantitative alert volume analysis with statistical breakdowns by severity, rules, agents, and temporal patterns. |
+| **Filtering** | Retrieves specific alert documents matching filter criteria with contextual summaries for investigation. |
+| **Distribution** | Performs comprehensive single or multi-dimensional alert pattern analysis across security dimensions (agents, users, processes, rules, level severity, temporal criteria, rule groups, geography) with cross-correlations, percentage breakdowns, and temporal patterns for threat analysis. |
+| **Ranking/Stacking** | Rank or stack entities by alert frequency (e.g. top alerting hosts, users, rules, most severe alerts, etc). |
+
+**Example Queries:**
+
+**Counting:**
+- "Count all critical alerts from the last 24 hours"
+- "Count alerts by user and integrity level for today"
+- "Count high severity alerts with MITRE technique breakdown for the past 2 days"
+
+**Filtering:**
+- "Filter the dataset for alerts with severity level 15"
+- "Find alerts with process name 'powershell.exe'"
+- "Filter all critical alerts with rule group 'sysmon' in the past 12 hours"
+
+**Distribution:**
+- "Show me alert distribution by rule group this week"
+- "Show me a distribution of alerts by severity levels and hourly time periods over the past three days"
+- "Give me alert correlations between users, hosts, and severity levels"
+
+**Ranking/Stacking:**
+- "Rank hosts by alert frequency"
+- "What are the most frequently triggered security rules on host U209-PC-BLEE in the last 24 hours?"
+- "Show me the most active host in terms of security alerts over the past 6 hours"
+
+#### 2. Find Anomalies
+
+| Sub-Action | Description |
+|------------|-------------|
+| **Behavioral Baseline** | Detect long-term behavioral activity in entity activities by comparing current behavior over an extended period of days against RCF learned baselines. |
+| **Threshold-Based Detection** | Detect sudden bursts of immense anomalous activity within a short period of time by comparing real-time data against dynamic metric thresholds (alert counts, host activity, user activity, alert severity) established by RCF-learned baselines. Anomalous activity detected includes Brute Force activity or a Worm propagation. |
+| **Trend Analysis** | Detect escalating and progressive trends of anomalous cyber activity which are escalating and build momentum over long periods of time, including insider threat escalation detection or zero-day exploits. |
+
+**Example Queries:**
+
+**Threshold-Based Detection:**
+- "Detect sudden spikes in failed login attempts for the past 12 hours."
+- "Find authentication brute force attempts with exceeding user diversity anomalies in the last 2 hours using 3-day RCF baseline"
+- "Detect rapid malware spread with host diversity exceeding 20 affected systems and alert volume over 500 in the last 1 hour using 3-day RCF baseline"
+- "Find critical alert volume threshold breaches on hosts in the last 12 days using 3-day RCF learned baselines"
+
+**Behavioral Baseline:**
+- "Find behavioral anomalies for host server-01"
+- "Detect compromised user account behaviour with abnormal user activity patterns and process execution deviations in the last 2 days using 7-day RCF behavioural baseline with high sensitivity"
+- "Detect insider threat behaviour with unusual user activity diversity and abnormal host access patterns in the last 21 days using 60-day RCF behavioural baseline with medium sensitivity"
+
+**Trend Analysis:**
+- "Show me escalating threat trends over the past week"
+- "Find increasing alert volume trends in the last 24 hours with high sensitivity using 7-day baseline"
+- "Detect lateral movement with progressive host spread trends and temporal escalation in the last 24 hours using 14-day RCF trend baseline with high sensitivity"
+- "Find insider threat escalation patterns with increasing user activity and severity progression in the last 7 days using 30-day RCF trend baseline"
+
+#### 3. Investigate Entity
+
+| Sub-Action | Description |
+|------------|-------------|
+| **Alert Retrieval** | Retrieve and analyze the alerts for a specified entity (a user account, host, file, process). This provides a statistical breakdown of alerts over a chronological timeline of alert distribution and most recently triggered alerts. |
+| **Detailed Information** | Provides comprehensive details, a complete profile concerning an entity including total alerts, detailed MITRE ATT&CK associations, risk scoring and alert severity breakdowns. |
+| **Activity Analysis** | Perform behavior analysis on an entity to identify behavioral patterns, including alert activity bursts, peak usage time windows, process execution and user interaction to provide insights into normal behavior for the specified entity. |
+| **Status Monitoring** | Provides operational and performance analysis of an entity, including recent security alerts, agent connectivity status, service states, and the entity's overall health scoring. |
+
+**Example Queries:**
+
+**Alert Retrieval:**
+- "Show me all alerts for host win10-01."
+- "Give all alerts from host 012 for the last 6 hours."
+- "What alerts have been triggered by user SYSTEM this week?"
+
+**Detailed Information:**
+- "Get detailed information about user administrator"
+- "Show me detailed information for host U209-PC-BLEE for today"
+- "Get full detail information for host 192.168.201.33 including risk score"
+
+**Activity Analysis:**
+- "Analyze activity patterns for process powershell.exe"
+- "Analyze activity patterns for host win10-02 over the last three days"
+- "Track activity patterns for host Win10-01 over the past four days"
+
+**Status Monitoring:**
+- "Show a status report on the host U209-PC-BLEE"
+- "What's the current security status of host MAIL-SERVER?"
+- "Give a status report on host with the IP address 192.168.201.33"
+
+#### 4. Map Relationships
+
+| Sub-Action | Description |
+|------------|-------------|
+| **Entity to Entity** | Map direct relationships between specified entities by finding shared events, or direct interactions in the security data. Identifies which entities interact with each other and assesses the strength of relationship, type and risk scoring based on alert severity for security investigation and lateral movement detection. |
+| **Behavioral Correlation** | Identify correlated behavioral patterns or activities across multiple entities that occur in similar timeframes, suggesting coordinated actions, attack chains, or systematic behaviors. |
+
+**Example Queries:**
+
+**Entity to Entity:**
+- "Show me which hosts user SYSTEM accessed today."
+- "Which users have accessed host with IP 192.168.201.33 in the past 24 hours?"
+- "Show me all files that were loaded by the svchost.exe process over the past 6 hours"
+- "What files were deleted by process TiWorker.exe on May 15 2025?"
+- "Show me a process injecting into another process on Aug 13 2025"
+
+**Behavioral Correlation:**
+- "Analyse correlated activities between host win10-01 and other entities in the last 6 hours"
+- "Find coordinated activities involving user SYSTEM in the last 4 hours"
+- "Detect unusual access sequences from host with IP 192.168.201.33 for the past hour"
+
+#### 5. Trace Timeline
+
+| Sub-Action | Description |
+|------------|-------------|
+| **Show Sequence** | Produces a chronological timeline of security events in the order they occurred, like the sequence of actions on a host, by a user, or involving a specific process. |
+| **Attack Progression** | Tracks how an attack evolved and progressed over time, identifying attack chains. Focuses on critical events and shows how attackers moved from initial compromise to later stages. |
+| **Temporal Correlation** | Finds events that occurred close together in time (within a specified time window), helping identify related activities that might be part of the same attack or incident. |
+
+**Example Queries:**
+
+**Show Sequence:**
+- "Show me the event sequence for host server-01 from 2pm to 4pm."
+- "Display the sequence of events yesterday between 06:00:00 and 12:00:00"
+- "Show a sequential timeline of all critical alerts over the past 12 hours"
+- "Show me any detailed sequence of authentication events on agent 012 over the past 2 days"
+
+**Attack Progression:**
+- "Show a timeline of events preceding a T1059.003 alert over the past hour"
+- "Trace how the attack developed on win10-01 from initial access at 09:47:45 UTC"
+- "Show attack evolution for host with IP address 192.168.201.33 over past two hours"
+
+**Temporal Correlation:**
+- "Show me any temporal correlations between events for host win10-01 in the last four hours"
+- "Identify coordinated activity patterns across multiple entities within 10-minute windows"
+- "Show temporally correlated events for user SYSTEM for the past three days"
+
+
+
 ## Using THF for Threat Hunting
 
 ### Getting Started
@@ -164,6 +301,25 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 - Each conversation maintains context across multiple queries
 - Use the "Reset Session" button in the sidebar to start a new investigation
 - View session information to see conversation history
+
+```bash
+# Reset session memory
+POST /reset?session_id=your-session-id
+
+# Get session information
+GET /session/{session_id}
+
+# List all active sessions
+GET /sessions
+```
+
+### Health & System Info
+```bash
+# Health check
+
+```bash
+curl http://localhost:8000/health
+```
 
 ## Roadmap
 
@@ -284,57 +440,6 @@ Intelligent context analysis and preservation system:
 - Automatic JSON serialization
 - Request/response validation
 
-## Technology Stack
-
-### Core Framework & AI
-- **Anthropic Claude API** (v0.57.1+) - Claude Sonnet 4 for LLM orchestration
-- **LangChain** (v0.3.26+) - Agent framework and tool integration
-- **LangChain-Anthropic** (v0.3.17+) - Anthropic integration for LangChain
-- **LangSmith** (v0.4.5+) - Observability and agent tracing
-
-### Backend & APIs
-- **FastAPI** (v0.116.1+) - Async REST API with auto-documentation
-- **Uvicorn** (v0.35.0+) - ASGI server with WebSocket support
-- **HTTPX** (v0.28.1+) - Async HTTP client
-- **Aiohttp** (v3.12.14+) - Async HTTP framework
-
-### Data Integration
-- **OpenSearch-py** (v2.4.0+) - Direct Wazuh OpenSearch backend integration
-- **Wazuh API Client** (custom) - Agent management and system queries
-- **Redis** (v6.2.0+) - Query caching and session storage
-
-### Frontend
-- **Streamlit** (v1.46.1+) - Interactive web UI framework
-- **Python-multipart** (v0.0.20+) - File upload handling
-
-### Data Validation & Serialization
-- **Pydantic** (v2.10.6+) - Schema validation and type safety
-- **Pydantic-settings** (v2.8.1+) - Environment configuration management
-
-### Observability & Monitoring
-- **OpenTelemetry-api** (v1.35.0+) - Distributed tracing
-- **OpenTelemetry-sdk** (v1.35.0+) - Telemetry implementation
-- **OpenTelemetry-exporter-prometheus** (v0.56b0) - Metrics export
-- **Prometheus-client** (v0.22.1+) - Metrics collection
-- **Structlog** (v25.4.0+) - Structured JSON logging
-- **Colorama** (v0.4.6+) - Colored terminal output
-
-### Security & Authentication
-- **Python-jose[cryptography]** (v3.5.0+) - JWT token handling
-
-### Utilities
-- **Python-dotenv** (v1.1.0+) - Environment variable loading
-- **Python-dateutil** (v2.8.2+) - Date parsing and manipulation
-- **Pytz** (v2023.3+) - Timezone handling
-- **Aiofiles** (v24.1.0+) - Async file operations
-
-### Development & Testing
-- **Pytest** (v7.4.0+) - Testing framework
-- **Pytest-asyncio** (v0.21.0+) - Async test support
-- **Pytest-cov** (v4.1.0+) - Coverage reporting
-- **Black** (v23.0.0+) - Code formatting
-- **Mypy** (v1.5.0+) - Static type checking
-
 
 ## Advanced Usage
 
@@ -352,28 +457,6 @@ curl -X POST "http://localhost:8000/query" \
   -d '{"query": "Show me critical alerts from the last hour"}'
 ```
 
-### Python SDK Example
-
-```python
-from agent.wazuh_agent import WazuhSecurityAgent
-
-agent = WazuhSecurityAgent(
-    opensearch_config={
-        "host": "your-opensearch-host",
-        "port": 9200,
-        "auth": ("username", "password"),
-        "use_ssl": True
-    }
-)
-
-response = await agent.query("Show me the top 5 hosts with most alerts today")
-print(response)
-```
-
-## API Endpoints
-
-The FastAPI backend provides the following endpoints:
-
 ### Query Endpoint
 ```bash
 POST /query
@@ -383,27 +466,6 @@ Content-Type: application/json
   "query": "Show me critical alerts from the last hour",
   "session_id": "optional-session-id"
 }
-```
-
-### Session Management
-```bash
-# Reset session memory
-POST /reset?session_id=your-session-id
-
-# Get session information
-GET /session/{session_id}
-
-# List all active sessions
-GET /sessions
-```
-
-### Health & System Info
-```bash
-# Health check
-GET /health
-
-# API information
-GET /
 ```
 
 ## Development
@@ -495,23 +557,3 @@ The agent (`agent/wazuh_agent.py:214`) handles API overload gracefully:
 - **Structured Logging**: JSON-formatted logs with context
 - **OpenTelemetry**: Distributed tracing support
 - **Prometheus**: Metrics collection (optional)
-
-### Health Checks
-
-```bash
-curl http://localhost:8000/health
-```
-
-## Security
-
-### Best Practices
-
-- Store API keys securely using environment variables
-- Use HTTPS in production
-- Implement rate limiting
-- Validate all inputs through Pydantic schemas
-- Monitor for unusual query patterns
-
-### Authentication
-
-The system supports JWT-based authentication. Configure your authentication provider in the environment variables.
