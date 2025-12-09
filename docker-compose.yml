@@ -11,7 +11,7 @@ services:
 
     # Port mappings
     ports:
-      - "8000:8000"   # FastAPI backend
+      - "8030:8000"   # FastAPI backend
       - "8501:8501"   # Streamlit UI
 
     # Environment variables from .env file
@@ -53,7 +53,7 @@ services:
 
     # Networks
     networks:
-      - resilmesh-network
+      - resilmesh_network
 
   # ==============================================================================
   # Redis (OPTIONAL) - Uncomment to enable caching
