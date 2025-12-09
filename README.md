@@ -169,7 +169,7 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 - "Find critical alert volume threshold breaches on hosts in the last 12 days using 3-day RCF learned baselines"
 
 **Behavioral Baseline:**
-- "Find behavioral anomalies for host server-01"
+- "Find coordinated activities involving user SYSTEM in the last 4 hours."
 - "Detect compromised user account behaviour with abnormal user activity patterns and process execution deviations in the last 2 days using 7-day RCF behavioural baseline with high sensitivity"
 - "Detect insider threat behaviour with unusual user activity diversity and abnormal host access patterns in the last 21 days using 60-day RCF behavioural baseline with medium sensitivity"
 
@@ -212,10 +212,10 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 
 #### 4. Map Relationships
 
-| Sub-Action | Description |
-|------------|-------------|
-| **Entity to Entity** | Map direct relationships between specified entities by finding shared events, or direct interactions in the security data. Identifies which entities interact with each other and assesses the strength of relationship, type and risk scoring based on alert severity for security investigation and lateral movement detection. |
-| **Behavioral Correlation** | Identify correlated behavioral patterns or activities across multiple entities that occur in similar timeframes, suggesting coordinated actions, attack chains, or systematic behaviors. |
+| Sub-Action | Description                                                                                                                                                                                                                                                                                                                                                        |
+|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Entity to Entity** | Map direct relationships between specified entities (hosts, users, processes, files) by finding shared events, or direct interactions in the security data. Identifies which entities interact with each other and assesses the strength of relationship, type and risk scoring based on alert severity for security investigation and lateral movement detection. |
+| **Behavioral Correlation** | Identify correlated behavioral patterns or activities across multiple entities that occur in similar timeframes, suggesting coordinated actions, attack chains, or systematic behaviors.                                                                                                                                                                           |
 
 **Example Queries:**
 
@@ -513,33 +513,3 @@ The `ConversationContextProcessor` (agent/context_processor.py:1) analyzes conve
 - **Process Intelligence**: Searches across originalFileName, image, commandLine
 - **Multi-field Search**: Comprehensive coverage for hosts, processes, files
 - **Natural Language Time Parsing**: Supports "3 days ago", "yesterday 6am-11am"
-
-#### Retry Logic with Exponential Backoff
-The agent (`agent/wazuh_agent.py:214`) handles API overload gracefully:
-- Detects 529 (overload) errors automatically
-- Exponential backoff: 2s, 4s intervals
-- User-friendly error messages
-- Maintains conversation state during retries
-
-#### Type Safety & Validation
-- **Pydantic Schemas**: All function parameters are validated
-- **Enum-Based Selection**: Action and entity types use enums
-- **Automatic Serialization**: JSON conversion handled automatically
-- **Request Validation**: FastAPI validates all API requests
-
-### Adding New Functions
-
-1. Create a new module in the appropriate `functions/` subdirectory
-2. Implement the `execute()` function with proper parameters
-3. Add Pydantic schema for parameter validation
-4. Add the function to the corresponding LangChain tool in `tools/`
-5. Update documentation and add tests
-
-## Monitoring
-
-### Observability
-
-- **LangSmith**: Trace agent interactions and function calls
-- **Structured Logging**: JSON-formatted logs with context
-- **OpenTelemetry**: Distributed tracing support
-- **Prometheus**: Metrics collection (optional)
