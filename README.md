@@ -2,20 +2,61 @@
 
 An AI-powered natural language interface for Wazuh SIEM using LangChain and Anthropic Claude.
 
+---
+
+# 📖 User Guide
+
 ## Overview
 
 THF (Threat Hunting Framework) is a sophisticated AI-powered security analysis platform that provides a conversational interface to Wazuh SIEM data. The system leverages Claude AI (Anthropic's Claude Sonnet 4) through LangChain to enable security analysts to investigate security incidents, analyze alerts, and understand their security posture using natural language queries.
 
 The framework converts user queries into structured function calls, executes them against the Wazuh OpenSearch backend and Wazuh API, and returns actionable security insights with full context preservation across multi-turn conversations.
 
+## Features
+
+### 8 Core Security Capabilities
+
+1. **analyze_alerts** - Alert analysis with ranking, filtering, counting, distribution
+2. **investigate_entity** - Entity investigation (host, user, process, file)
+3. **detect_threats** - MITRE ATT&CK techniques, tactics, threat actors
+4. **map_relationships** - Entity relationships, activity correlation
+5. **find_anomalies** - Threshold, behavioral, trend detection
+6. **trace_timeline** - Chronological event reconstruction
+7. **check_vulnerabilities** - CVE checking and vulnerability assessment
+8. **monitor_agents** - Agent status, health, and connectivity monitoring
+
+### Example Queries
+
+Ask questions in natural language to investigate your security environment:
+
+- "Show me the top 10 hosts with most alerts this week."
+- "What alerts are there for user SYSTEM?"
+- "Find T1055 process injection techniques detected recently."
+- "Which users accessed host win10-01 in the last 24 hours?"
+- "Show me unusual login patterns from yesterday."
+- "Check for Log4Shell vulnerabilities on our Windows hosts."
+- "Which agents are disconnected right now?"
+- "Find hosts with more than 50 failed login attempts."
+- "Show me critical alerts from the last hour."
+- "What processes did powershell.exe create today?"
+
 ## Installation Instructions & Setup
+
+### Prerequisites
+
+- Python 3.9+
+- Anthropic API key
+- Access to Wazuh OpenSearch cluster
+- Redis (optional, for caching)
+
+### Installation Steps
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/resilmesh2/THF.git
    cd THF/
    ```
-   
+
 2. Install required dependencies
    ```bash
    pip install -r requirements.txt
@@ -88,6 +129,74 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
    Find hosts with more than 50 failed login attempts
    Which agents are disconnected?
    ```
+
+## Using THF for Threat Hunting
+
+### Getting Started
+
+1. **Ask Initial Questions**: Start with broad queries to understand your security posture
+   - "Show me critical alerts from today"
+   - "Which agents are disconnected?"
+   - "What are the top 10 hosts with most alerts?"
+
+2. **Follow-Up Questions**: THF remembers context from previous queries
+   - After seeing alerts: "Give me more details on those critical alerts"
+   - After seeing a host: "What about authentication failures on that host?"
+   - After investigating: "Show me the timeline for those events"
+
+3. **Investigate Entities**: Deep-dive into specific hosts, users, processes, or files
+   - "What alerts are there for host win10-01?"
+   - "Show me all activity for user administrator in the last 24 hours"
+   - "What files did powershell.exe create today?"
+
+4. **Detect Threats**: Look for MITRE ATT&CK techniques and suspicious patterns
+   - "Find T1055 process injection techniques detected recently"
+   - "Show me unusual login patterns from yesterday"
+   - "Are there any credential dumping attempts?"
+
+5. **Map Relationships**: Understand connections between entities
+   - "Which users accessed host win10-01 today?"
+   - "What processes did cmd.exe create?"
+   - "Show me files accessed by suspicious processes"
+
+### Session Management
+
+- Each conversation maintains context across multiple queries
+- Use the "Reset Session" button in the sidebar to start a new investigation
+- View session information to see conversation history
+
+## Roadmap
+
+### Completed Features ✓
+- [x] Natural language interface with Claude Sonnet 4
+- [x] Session-based conversation memory
+- [x] Context preservation across queries
+- [x] 8 core security analysis intents with 30+ sub-actions
+- [x] Streamlit web interface
+- [x] FastAPI REST API
+- [x] OpenSearch and Wazuh API integration
+- [x] Smart routing and field detection
+- [x] Natural language time parsing
+- [x] MITRE ATT&CK threat detection
+- [x] Entity relationship mapping
+- [x] Anomaly detection with RCF baselines
+- [x] Comprehensive logging and tracing
+
+### Planned Features
+- [ ] Accelerated Threat Hunting Response using local model to replace Claude Sonnet 4.5
+- [ ] Support for custom Wazuh rules and decoders
+- [ ] Integration with external threat intelligence feeds
+- [ ] Multi-tenant support with role-based access control
+- [ ] Advanced visualization capabilities and dashboards
+- [ ] Query result caching with Redis
+- [ ] Automated report generation
+- [ ] Scheduled threat hunting queries
+- [ ] Integration with ticketing systems (Jira, ServiceNow)
+- [ ] Mobile app interface
+
+---
+
+# 🔧 Technical Documentation
 
 ## Application Architecture
 
@@ -175,29 +284,6 @@ Intelligent context analysis and preservation system:
 - Automatic JSON serialization
 - Request/response validation
 
-## Features
-
-### 8 Core Security Intents
-
-1. **analyze_alerts** - Alert analysis with ranking, filtering, counting, distribution
-2. **investigate_entity** - Entity investigation (host, user, process, file)
-3. **detect_threats** - MITRE ATT&CK techniques, tactics, threat actors
-4. **map_relationships** - Entity relationships, activity correlation
-5. **find_anomalies** - Threshold, behavioral, trend detection
-6. **trace_timeline** - Chronological event reconstruction
-7. **check_vulnerabilities** - CVE checking and vulnerability assessment
-8. **monitor_agents** - Agent status, health, and connectivity monitoring
-
-### Example Queries
-
-- "Show me the top 10 hosts with most alerts this week."
-- "What alerts are there for user SYSTEM?"
-- "Find T1055 process injection techniques detected recently."
-- "Which users accessed host win10-01 in the last 24 hours?"
-- "Show me unusual login patterns from yesterday."
-- "Check for Log4Shell vulnerabilities on our Windows hosts."
-- "Which agents are disconnected right now?"
-
 ## Technology Stack
 
 ### Core Framework & AI
@@ -249,7 +335,8 @@ Intelligent context analysis and preservation system:
 - **Black** (v23.0.0+) - Code formatting
 - **Mypy** (v1.5.0+) - Static type checking
 
-## Usage
+
+## Advanced Usage
 
 ### REST API
 
@@ -281,6 +368,42 @@ agent = WazuhSecurityAgent(
 
 response = await agent.query("Show me the top 5 hosts with most alerts today")
 print(response)
+```
+
+## API Endpoints
+
+The FastAPI backend provides the following endpoints:
+
+### Query Endpoint
+```bash
+POST /query
+Content-Type: application/json
+
+{
+  "query": "Show me critical alerts from the last hour",
+  "session_id": "optional-session-id"
+}
+```
+
+### Session Management
+```bash
+# Reset session memory
+POST /reset?session_id=your-session-id
+
+# Get session information
+GET /session/{session_id}
+
+# List all active sessions
+GET /sessions
+```
+
+### Health & System Info
+```bash
+# Health check
+GET /health
+
+# API information
+GET /
 ```
 
 ## Development
@@ -364,18 +487,6 @@ The agent (`agent/wazuh_agent.py:214`) handles API overload gracefully:
 4. Add the function to the corresponding LangChain tool in `tools/`
 5. Update documentation and add tests
 
-### Testing
-
-Run the test suite:
-```bash
-pytest tests/
-```
-
-Run with coverage:
-```bash
-pytest --cov=. tests/
-```
-
 ## Monitoring
 
 ### Observability
@@ -404,83 +515,3 @@ curl http://localhost:8000/health
 ### Authentication
 
 The system supports JWT-based authentication. Configure your authentication provider in the environment variables.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-### Code Style
-
-- Follow PEP 8
-- Use type hints
-- Write docstrings for all functions
-- Add structured logging to new functions
-
-## API Endpoints
-
-The FastAPI backend provides the following endpoints:
-
-### Query Endpoint
-```bash
-POST /query
-Content-Type: application/json
-
-{
-  "query": "Show me critical alerts from the last hour",
-  "session_id": "optional-session-id"
-}
-```
-
-### Session Management
-```bash
-# Reset session memory
-POST /reset?session_id=your-session-id
-
-# Get session information
-GET /session/{session_id}
-
-# List all active sessions
-GET /sessions
-```
-
-### Health & System Info
-```bash
-# Health check
-GET /health
-
-# API information
-GET /
-```
-
-## Roadmap
-
-### Completed Features ✓
-- [x] Natural language interface with Claude Sonnet 4
-- [x] Session-based conversation memory
-- [x] Context preservation across queries
-- [x] 8 core security analysis intents with 30+ sub-actions
-- [x] Streamlit web interface
-- [x] FastAPI REST API
-- [x] OpenSearch and Wazuh API integration
-- [x] Smart routing and field detection
-- [x] Natural language time parsing
-- [x] MITRE ATT&CK threat detection
-- [x] Entity relationship mapping
-- [x] Anomaly detection with RCF baselines
-- [x] Comprehensive logging and tracing
-
-### Planned Features
-- [ ] Accelerated Threat Hunting Response using local model toi replace Claude Sonnet 4.5
-- [ ] Support for custom Wazuh rules and decoders
-- [ ] Integration with external threat intelligence feeds
-- [ ] Multi-tenant support with role-based access control
-- [ ] Advanced visualization capabilities and dashboards
-- [ ] Query result caching with Redis
-- [ ] Automated report generation
-- [ ] Scheduled threat hunting queries
-- [ ] Integration with ticketing systems (Jira, ServiceNow)
-- [ ] Mobile app interface
