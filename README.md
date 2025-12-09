@@ -436,11 +436,6 @@ Intelligent context analysis and preservation system:
 
 ### REST API
 
-Start the FastAPI server:
-```bash
-python main.py
-```
-
 Query the assistant:
 ```bash
 curl -X POST "http://localhost:8000/query" \
