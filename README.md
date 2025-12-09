@@ -76,7 +76,20 @@ Once dependencies are installed, you need to start the FastAPI backend and the S
 
 The backend will be available at `http://localhost:8000` and the UI at `http://localhost:8501` by default.
 
-## Architecture
+3. Access the Streamlit UI and start threat hunting:
+   - Open your browser and navigate to `http://localhost:8501`
+   - Enter a natural language security query in the text input field
+   - Press Enter or click outside the input field to submit
+
+   Example queries to try:
+   ```
+   Show me the top 10 hosts with most alerts this week
+   What alerts are there for user admin?
+   Find hosts with more than 50 failed login attempts
+   Which agents are disconnected?
+   ```
+
+## Application Architecture
 
 ```
 User Query → Context Processor → LangChain Agent → Tool Selection → Function Execution → OpenSearch/Wazuh API → Response Generation → User
@@ -235,15 +248,6 @@ Intelligent context analysis and preservation system:
 - **Pytest-cov** (v4.1.0+) - Coverage reporting
 - **Black** (v23.0.0+) - Code formatting
 - **Mypy** (v1.5.0+) - Static type checking
-
-## Installation
-
-### Prerequisites
-
-- Python 3.9+
-- Anthropic API key
-- Access to Wazuh OpenSearch cluster
-- Redis (optional, for caching)
 
 ## Usage
 
