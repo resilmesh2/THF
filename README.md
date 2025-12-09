@@ -420,17 +420,6 @@ The system supports JWT-based authentication. Configure your authentication prov
 - Write docstrings for all functions
 - Add structured logging to new functions
 
-## License
-
-MIT License - see LICENSE file for details
-
-## Support
-
-For issues and questions:
-- Create an issue on GitHub
-- Check the documentation in `docs/`
-- Review the example queries and use cases
-
 ## API Endpoints
 
 The FastAPI backend provides the following endpoints:
@@ -467,35 +456,6 @@ GET /health
 GET /
 ```
 
-### Agent Methods (Python SDK)
-The `WazuhSecurityAgent` class provides these key methods:
-
-```python
-# Process natural language query with session context
-await agent.query(user_input="Show me alerts", session_id="user-123")
-
-# Reset conversation memory
-await agent.reset_memory(session_id="user-123")
-
-# Get session information
-agent.get_session_info(session_id="user-123")
-
-# Test OpenSearch connection
-await agent.test_connection()
-
-# Get available Wazuh indices
-await agent.get_available_indices()
-
-# Get tool descriptions
-agent.get_tool_descriptions()
-
-# Get system information
-agent.get_system_info()
-
-# Close connections
-await agent.close()
-```
-
 ## Roadmap
 
 ### Completed Features ✓
@@ -514,6 +474,7 @@ await agent.close()
 - [x] Comprehensive logging and tracing
 
 ### Planned Features
+- [ ] Accelerated Threat Hunting Response using local model toi replace Claude Sonnet 4.5
 - [ ] Support for custom Wazuh rules and decoders
 - [ ] Integration with external threat intelligence feeds
 - [ ] Multi-tenant support with role-based access control
