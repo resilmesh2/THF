@@ -25,17 +25,51 @@ The framework converts user queries into structured function calls, executes the
    ```bash
    cp .env.example .env
    ```
-   
+
+## Environment Variables
+
+### Edit .env and configure your API keys
+
+The following environment variables must be configured in your `.env` file:
+
+**Anthropic Configuration:**
+- `ANTHROPIC_API_KEY` - Your Anthropic API key for Claude AI access
+
+**OpenSearch Configuration:**
+- `OPENSEARCH_HOST` - Your OpenSearch host address
+- `OPENSEARCH_PORT` - OpenSearch port (default: 9200)
+- `OPENSEARCH_USER` - OpenSearch username (default: admin)
+- `OPENSEARCH_PASSWORD` - OpenSearch password
+- `OPENSEARCH_USE_SSL` - Enable SSL for OpenSearch connection (true/false)
+
+**Wazuh API Configuration:**
+- `WAZUH_API_HOST` - Wazuh API host address (default: localhost)
+- `WAZUH_API_PORT` - Wazuh API port (default: 55000)
+- `WAZUH_API_USERNAME` - Wazuh API username
+- `WAZUH_API_PASSWORD` - Wazuh API password
+- `WAZUH_API_USE_SSL` - Enable SSL for Wazuh API (true/false)
+- `WAZUH_API_VERIFY_CERTS` - Verify SSL certificates (true/false)
+
+**Redis Configuration (optional):**
+- `REDIS_HOST` - Redis host address (default: localhost)
+- `REDIS_PORT` - Redis port (default: 6379)
+- `REDIS_PASSWORD` - Redis password (leave empty if not required)
+
+**Application Configuration:**
+- `LOG_LEVEL` - Logging level (INFO, DEBUG, WARNING, ERROR)
+- `API_HOST` - FastAPI host binding (default: 0.0.0.0)
+- `API_PORT` - FastAPI port (default: 8000)
+
 ## Running the Application
 
-Once dependencies are installed, you need to start both the FastAPI backend and the Streamlit UI.
+Once dependencies are installed, you need to start the FastAPI backend and the Streamlit frontend UI.
 
-1. Start the FastAPI backend server:
+1. First, start the FastAPI backend server:
    ```bash
    uvicorn main:app --host 0.0.0.0 --port 8000
    ```
 
-2. In a new terminal, start the Streamlit UI:
+2. Then in a new terminal, start the Streamlit UI:
    ```bash
    streamlit run ./streamlit_ui.py
    ```
@@ -46,8 +80,8 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 
 ```
 User Query → Context Processor → LangChain Agent → Tool Selection → Function Execution → OpenSearch/Wazuh API → Response Generation → User
-     ↓
-Session Memory
+     ↓                                                    ↓
+Session Memory                                   Function Dispatcher
 ```
 
 ### Core Components
@@ -211,40 +245,6 @@ Intelligent context analysis and preservation system:
 - Access to Wazuh OpenSearch cluster
 - Redis (optional, for caching)
 
-## Configuration
-
-### Environment Variables
-
-```env
-# Anthropic Configuration
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# OpenSearch Configuration
-OPENSEARCH_HOST=your-opensearch-host
-OPENSEARCH_PORT=9200
-OPENSEARCH_USER=admin
-OPENSEARCH_PASSWORD=your-password
-OPENSEARCH_USE_SSL=true
-
-# Wazuh API Configuration
-WAZUH_API_HOST=localhost
-WAZUH_API_PORT=55000
-WAZUH_API_USERNAME=wazuh
-WAZUH_API_PASSWORD=your-wazuh-api-password
-WAZUH_API_USE_SSL=true
-WAZUH_API_VERIFY_CERTS=false
-
-# Redis Configuration (optional)
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-
-# Application Configuration
-LOG_LEVEL=INFO
-API_HOST=0.0.0.0
-API_PORT=8000
-```
-
 ## Usage
 
 ### REST API
@@ -285,7 +285,7 @@ print(response)
 
 ```
 THF/
-├── agent/                          # Core LLM agent implementation
+├── agent/                         # Core LLM agent implementation
 │   ├── wazuh_agent.py             # Main LangChain agent orchestrator
 │   ├── context_processor.py       # Conversation context analysis
 │   └── __init__.py
