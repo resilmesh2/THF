@@ -96,9 +96,9 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 
    Example threat hunting queries to try:
    ```
-   Show me the top 10 hosts with most alerts this week
+   Show me the top 10 hosts with most alerts the past two days
    What alerts are there for user SYSTEM?
-   Find hosts with more than 50 failed login attempts
+   Find hosts with more than 20 failed login attempts
    Which agents are disconnected?
    Which users accessed host win10-01 in the last 24 hours?
    Find T1055 process injection techniques detected in the last 12 hours.
@@ -256,7 +256,6 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 - "Show me any temporal correlations between events for host win10-01 in the last four hours"
 - "Identify coordinated activity patterns across multiple entities within 10-minute windows"
 - "Show temporally correlated events for user SYSTEM for the past three days"
-
 
 
 ## Using THF for Threat Hunting
