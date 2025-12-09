@@ -94,12 +94,15 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
    - Enter a natural language security query in the text input field
    - Press Enter or click outside the input field to submit
 
-   Example queries to try:
+   Example threat hunting queries to try:
    ```
    Show me the top 10 hosts with most alerts this week
-   What alerts are there for user admin?
+   What alerts are there for user SYSTEM?
    Find hosts with more than 50 failed login attempts
    Which agents are disconnected?
+   Which users accessed host win10-01 in the last 24 hours?
+   Find T1055 process injection techniques detected in the last 12 hours.
+   Check for Log4Shell vulnerabilities on our Windows hosts.
    ```
 
 ## Features
@@ -114,17 +117,6 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 6. **trace_timeline** - Chronological event reconstruction
 7. **check_vulnerabilities** - CVE checking and vulnerability assessment
 8. **monitor_agents** - Agent status, health, and connectivity monitoring
-
-### Example Queries
-
-Ask questions in natural language to investigate your security environment:
-
-- "Show me the top 10 hosts with most alerts this week."
-- "What alerts are there for user SYSTEM?"
-- "Find T1055 process injection techniques detected recently."
-- "Which users accessed host win10-01 in the last 24 hours?"
-- "Show me unusual login patterns from yesterday."
-- "Check for Log4Shell vulnerabilities on our Windows hosts."
 
 
 ### Detailed Security Intent and Sub-Action Decomposition
