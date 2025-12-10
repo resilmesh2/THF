@@ -68,8 +68,15 @@ That's it! Wait about 1-2 minutes for everything to start up.
 Once the container is running, open your web browser:
 
 - **Main UI**: http://localhost:8501
-- **API Documentation**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
+- **API Documentation**: http://localhost:8030/docs
+- **Health Check**: http://localhost:8030/health
+
+**📝 Port Mapping Explained:**
+The docker-compose.yml uses port mapping `8030:8000`:
+- **8030** = Host port (what you access from your machine)
+- **8000** = Container port (where FastAPI runs inside Docker)
+
+This allows the FastAPI backend to run on its default port (8000) inside the container, while being accessible externally on port 8030.
 
 ---
 
@@ -150,13 +157,15 @@ docker-compose up --build
 ### Problem: Port already in use
 
 **Solution:**
-- Something else is using port 8000 or 8501
-- Stop the other application, or change ports in `docker-compose.yml`:
+- Something else is using port 8030 or 8501 on your host machine
+- Stop the other application, or change the **host port** in `docker-compose.yml`:
   ```yaml
   ports:
-    - "8080:8000"   # Use 8080 instead of 8000
-    - "8502:8501"   # Use 8502 instead of 8501
+    - "8080:8000"   # Use host port 8080 instead of 8030 (container still uses 8000)
+    - "8502:8501"   # Use host port 8502 instead of 8501
   ```
+
+**Note:** Only change the first number (host port). The second number (container port) should remain 8000 for FastAPI and 8501 for Streamlit.
 
 ### Problem: Docker build fails
 
@@ -269,7 +278,7 @@ If you're stuck:
 ## 📚 Additional Resources
 
 - **Main Documentation**: See `README.md` for detailed feature information
-- **API Documentation**: http://localhost:8000/docs (when running)
+- **API Documentation**: http://localhost:8030/docs (when running)
 - **Docker Documentation**: https://docs.docker.com/
 - **Wazuh Documentation**: https://documentation.wazuh.com/
 

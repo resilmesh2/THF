@@ -97,7 +97,7 @@ if 'context_info' not in st.session_state:
     st.session_state.context_info = {}
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = "http://localhost:8030"
 
 def check_api_health():
     """Check if the API is running"""

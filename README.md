@@ -71,7 +71,11 @@ The following environment variables must be configured in your `.env` file:
 **Application Configuration:**
 - `LOG_LEVEL` - Logging level (INFO, DEBUG, WARNING, ERROR)
 - `API_HOST` - FastAPI host binding (default: 0.0.0.0)
-- `API_PORT` - FastAPI port (default: 8000)
+- `API_PORT` - FastAPI port (default: 8000 for Docker, 8000 for local)
+
+**Note on Ports:**
+- **Docker**: Container runs on port 8000, mapped to host port 8030 (access via `http://localhost:8030`)
+- **Local**: Application runs directly on port 8000 (access via `http://localhost:8000`)
 
 ## Running the Application
 
@@ -88,6 +92,8 @@ Once dependencies are installed, you need to start the FastAPI backend and the S
    ```
 
 The backend will be available at `http://localhost:8000` and the UI at `http://localhost:8501` by default.
+
+**Note:** When using Docker, the backend is accessed via `http://localhost:8030` due to port mapping (`8030:8000` in docker-compose.yml).
 
 3. Access the Streamlit UI and start threat hunting:
    - Open your browser and navigate to `http://localhost:8501`
@@ -310,6 +316,7 @@ GET /sessions
 
 ```bash
 curl http://localhost:8000/health
+# Or if using Docker: curl http://localhost:8030/health
 ```
 
 ## Roadmap
