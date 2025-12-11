@@ -68,6 +68,12 @@ WORKDIR /app
 # Copy application files
 COPY --chown=thf:thf . .
 
+# Fix line endings and make entrypoint executable (must be done before switching to non-root user)
+RUN if [ -f /app/docker-entrypoint.sh ]; then \
+        sed -i 's/\r$//' /app/docker-entrypoint.sh && \
+        chmod +x /app/docker-entrypoint.sh; \
+    fi
+
 # Create directory for logs
 RUN mkdir -p /app/logs && chown -R thf:thf /app/logs
 

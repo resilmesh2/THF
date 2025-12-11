@@ -1,7 +1,7 @@
 """
 Wazuh Security Agent using LangChain
 """
-from langchain.agents.agent import AgentExecutor
+from langchain.agents import AgentExecutor
 from langchain.agents.structured_chat.base import create_structured_chat_agent
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain.callbacks import LangChainTracer

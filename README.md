@@ -269,14 +269,15 @@ The backend will be available at `http://localhost:8000` and the UI at `http://l
 ### Getting Started
 
 1. **Ask Initial Questions**: Start with broad queries to understand your security posture
+   - "Show me an alert breakdown for U209-PC-BLEE over the past 12 hours."
    - "Show me critical alerts from today"
    - "Which agents are disconnected?"
    - "What are the top 10 hosts with most alerts?"
 
 2. **Follow-Up Questions**: THF remembers context from previous queries
-   - After seeing alerts: "Give me more details on those critical alerts"
+   - After seeing alerts: "Give me more details on those critical alerts from this time frame."
    - After seeing a host: "What about authentication failures on that host?"
-   - After investigating: "Show me the timeline for those events"
+   - After investigating: "Show me a timeline for those events"
 
 3. **Investigate Entities**: Deep-dive into specific hosts, users, processes, or files
    - "What alerts are there for host win10-01?"
