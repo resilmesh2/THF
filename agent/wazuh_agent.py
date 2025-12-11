@@ -1,10 +1,12 @@
 """
 Wazuh Security Agent using LangChain
 """
-from langchain.agents import initialize_agent, AgentType
+from langchain.agents.agent import AgentExecutor
+from langchain.agents.structured_chat.base import create_structured_chat_agent
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain.callbacks import LangChainTracer
 from langchain_anthropic import ChatAnthropic
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from typing import Dict, Any, List
 import structlog
 import os
@@ -42,7 +44,7 @@ class WazuhSecurityAgent:
             temperature=0.1,
             anthropic_api_key=anthropic_api_key,
             max_tokens=3000,  # Reduced to help prevent API overload
-            timeout=30  # Add timeout for overload handling
+            timeout=300  # Add timeout for overload handling
         )
         
         # Initialize tools
@@ -58,6 +60,63 @@ class WazuhSecurityAgent:
         # Initialize context processor
         self.context_processor = ConversationContextProcessor()
         
+        # Enhanced system prompt with context preservation instructions
+        self.system_prompt = """You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents, analyze alerts, and understand their security posture.
+
+Key guidelines:
+- Always use the appropriate tools for data retrieval
+- Provide actionable security insights
+- Highlight critical findings and potential threats
+- Explain technical concepts in clear terms
+- Suggest follow-up investigations when relevant
+- Maintain security context in all responses
+- Focus on the most important security information
+- If a tool returns placeholder data, acknowledge it's not yet implemented
+
+Available tools cover:
+- Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
+- Alert analysis and statistics across multiple alerts (analyze_alerts)
+- Threat detection and MITRE ATT&CK mapping (detect_threats)
+- Relationship mapping between entities (map_relationships)
+- Anomaly detection (find_anomalies)
+- Timeline reconstruction (trace_timeline)
+- Vulnerability checking (check_vulnerabilities)
+- Agent monitoring (monitor_agents)
+
+Always provide context about what the data means from a security perspective.
+
+**CRITICAL: Anomaly Detection Response Requirements**
+When presenting anomaly detection results, you MUST explicitly state threshold sources and RCF baseline information:
+
+**1. Threshold Source Identification (REQUIRED IN EVERY RESPONSE):**
+- If using RCF-learned thresholds: State "Using RCF-learned thresholds from [X-day] baseline (confidence: [Y]%)"
+- If using fallback thresholds: State "Using static fallback threshold of [value] (no RCF baseline data available)"
+- ALWAYS specify the baseline period (e.g., "7-day RCF baseline", "30-day behavioral baseline")
+
+**2. Three Threshold Types - Define When Mentioned:**
+- **User-Provided Threshold**: Numeric value from query (e.g., "threshold: 150") - fallback only when RCF unavailable
+- **RCF Feature Thresholds**: Internal OpenSearch plugin thresholds for each RCF feature (alert_count_threshold: 65.7, severity_sum_threshold: 297.4, etc.)
+- **RCF-Learned Thresholds**: Dynamic thresholds from baseline analysis - OVERRIDE user-provided values when available
+
+**3. Format Requirements for Anomaly Responses:**
+- Start with: "Based on [RCF-learned/static fallback] baseline analysis over the last [X] days..."
+- Include: Baseline confidence score (if RCF: "96.44% confidence")
+- Specify: Which thresholds were exceeded (e.g., "Alert count: 6,669 (exceeds RCF threshold 65.7 by 6,603)")
+- For each anomaly: Clearly state "X exceeds RCF-learned threshold Y" or "X exceeds static threshold Y"
+
+**4. Detection Type-Specific Terminology:**
+- **Threshold Detection**: "RCF-learned threshold breach" / "sudden burst exceeding baseline"
+- **Trend Detection**: "Progressive escalation above RCF trend baseline" / "directional shift from baseline pattern"
+- **Behavioral Detection**: "Behavioral deviation from RCF entity baseline" / "anomalous pattern compared to normal behavior"
+
+**5. Example Good Response Opening:**
+"Based on RCF-learned baseline analysis over the last 3 days with 96.44% confidence, I've identified 25 critical threshold breaches. The RCF-learned alert count threshold is 65.7 (baseline mean: 21.25), which was exceeded by the following hosts..."
+
+**6. Example Bad Response (AVOID):**
+"I found anomalies exceeding thresholds..." (Missing: which threshold type? What baseline? What confidence?)
+
+Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity."""
+
         # Initialize callbacks
         callbacks = []
         # Only enable LangSmith tracing if properly configured
@@ -67,78 +126,70 @@ class WazuhSecurityAgent:
                 logger.info("LangSmith tracing enabled")
         except Exception as e:
             logger.warning("Failed to initialize LangSmith tracing", error=str(e))
-        
-        # Initialize agent
-        self.agent = initialize_agent(
-            tools=self.tools,
+
+        # Create prompt template for structured chat agent
+        # The system prompt needs to include tool information
+        system_message = f"""{self.system_prompt}
+
+You have access to the following tools:
+
+{{tools}}
+
+Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
+
+Valid "action" values: "Final Answer" or {{tool_names}}
+
+Provide only ONE action per $JSON_BLOB, as shown:
+
+```
+{{{{
+  "action": $TOOL_NAME,
+  "action_input": $INPUT
+}}}}
+```
+
+Follow this format:
+
+Question: input question to answer
+Thought: consider previous and subsequent steps
+Action:
+```
+$JSON_BLOB
+```
+Observation: action result
+... (repeat Thought/Action/Observation N times)
+Thought: I know what to respond
+Action:
+```
+{{{{
+  "action": "Final Answer",
+  "action_input": "Final response to human"
+}}}}
+```"""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_message),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            ("human", "{input}\n\n{agent_scratchpad}"),
+        ])
+
+        # Create the structured chat agent
+        agent = create_structured_chat_agent(
             llm=self.llm,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            tools=self.tools,
+            prompt=prompt
+        )
+
+        # Create agent executor
+        self.agent = AgentExecutor(
+            agent=agent,
+            tools=self.tools,
             memory=self.memory,
             verbose=True,
-            early_stopping_method="generate",  # Generate response instead of force stopping
             callbacks=callbacks,
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            max_iterations=15  # Allow more iterations for complex threat hunting queries
         )
-        
-        # Enhanced system prompt with context preservation instructions
-        self.system_prompt = """
-        You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents,
-        analyze alerts, and understand their security posture.
-
-        Key guidelines:
-        - Always use the appropriate tools for data retrieval
-        - Provide actionable security insights
-        - Highlight critical findings and potential threats
-        - Explain technical concepts in clear terms
-        - Suggest follow-up investigations when relevant
-        - Maintain security context in all responses
-        - Focus on the most important security information
-        - If a tool returns placeholder data, acknowledge it's not yet implemented
-
-        Available tools cover:
-        - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
-        - Alert analysis and statistics across multiple alerts (analyze_alerts)
-        - Threat detection and MITRE ATT&CK mapping (detect_threats)
-        - Relationship mapping between entities (map_relationships)
-        - Anomaly detection (find_anomalies)
-        - Timeline reconstruction (trace_timeline)
-        - Vulnerability checking (check_vulnerabilities)
-        - Agent monitoring (monitor_agents)
-
-        Always provide context about what the data means from a security perspective.
-
-        **CRITICAL: Anomaly Detection Response Requirements**
-        When presenting anomaly detection results, you MUST explicitly state threshold sources and RCF baseline information:
-
-        **1. Threshold Source Identification (REQUIRED IN EVERY RESPONSE):**
-        - If using RCF-learned thresholds: State "Using RCF-learned thresholds from [X-day] baseline (confidence: [Y]%)"
-        - If using fallback thresholds: State "Using static fallback threshold of [value] (no RCF baseline data available)"
-        - ALWAYS specify the baseline period (e.g., "7-day RCF baseline", "30-day behavioral baseline")
-
-        **2. Three Threshold Types - Define When Mentioned:**
-        - **User-Provided Threshold**: Numeric value from query (e.g., "threshold: 150") - fallback only when RCF unavailable
-        - **RCF Feature Thresholds**: Internal OpenSearch plugin thresholds for each RCF feature (alert_count_threshold: 65.7, severity_sum_threshold: 297.4, etc.)
-        - **RCF-Learned Thresholds**: Dynamic thresholds from baseline analysis - OVERRIDE user-provided values when available
-
-        **3. Format Requirements for Anomaly Responses:**
-        - Start with: "Based on [RCF-learned/static fallback] baseline analysis over the last [X] days..."
-        - Include: Baseline confidence score (if RCF: "96.44% confidence")
-        - Specify: Which thresholds were exceeded (e.g., "Alert count: 6,669 (exceeds RCF threshold 65.7 by 6,603)")
-        - For each anomaly: Clearly state "X exceeds RCF-learned threshold Y" or "X exceeds static threshold Y"
-
-        **4. Detection Type-Specific Terminology:**
-        - **Threshold Detection**: "RCF-learned threshold breach" / "sudden burst exceeding baseline"
-        - **Trend Detection**: "Progressive escalation above RCF trend baseline" / "directional shift from baseline pattern"
-        - **Behavioral Detection**: "Behavioral deviation from RCF entity baseline" / "anomalous pattern compared to normal behavior"
-
-        **5. Example Good Response Opening:**
-        "Based on RCF-learned baseline analysis over the last 3 days with 96.44% confidence, I've identified 25 critical threshold breaches. The RCF-learned alert count threshold is 65.7 (baseline mean: 21.25), which was exceeded by the following hosts..."
-
-        **6. Example Bad Response (AVOID):**
-        "I found anomalies exceeding thresholds..." (Missing: which threshold type? What baseline? What confidence?)
-        
-        Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity.
-        """
         
         logger.info("Wazuh Security Agent initialized",
                    tools_count=len(self.tools),
@@ -175,15 +226,68 @@ class WazuhSecurityAgent:
             except Exception as e:
                 logger.warning("Failed to initialize LangSmith tracing", error=str(e))
 
-            self.agent = initialize_agent(
-                tools=self.tools,
+            # Create prompt template for structured chat agent
+            # The system prompt needs to include tool information
+            system_message = f"""{self.system_prompt}
+
+You have access to the following tools:
+
+{{tools}}
+
+Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
+
+Valid "action" values: "Final Answer" or {{tool_names}}
+
+Provide only ONE action per $JSON_BLOB, as shown:
+
+```
+{{{{
+  "action": $TOOL_NAME,
+  "action_input": $INPUT
+}}}}
+```
+
+Follow this format:
+
+Question: input question to answer
+Thought: consider previous and subsequent steps
+Action:
+```
+$JSON_BLOB
+```
+Observation: action result
+... (repeat Thought/Action/Observation N times)
+Thought: I know what to respond
+Action:
+```
+{{{{
+  "action": "Final Answer",
+  "action_input": "Final response to human"
+}}}}
+```"""
+
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_message),
+                MessagesPlaceholder(variable_name="chat_history", optional=True),
+                ("human", "{input}\n\n{agent_scratchpad}"),
+            ])
+
+            # Create the structured chat agent
+            agent = create_structured_chat_agent(
                 llm=self.llm,
-                agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+                tools=self.tools,
+                prompt=prompt
+            )
+
+            # Create agent executor with session-specific memory
+            self.agent = AgentExecutor(
+                agent=agent,
+                tools=self.tools,
                 memory=session_memory,
                 verbose=True,
-                early_stopping_method="generate",  # Generate response instead of force stopping
                 callbacks=callbacks,
-                handle_parsing_errors=True
+                handle_parsing_errors=True,
+                max_iterations=15  # Allow more iterations for complex threat hunting queries
             )
 
             logger.info("Agent memory updated for session", session_id=session_id)

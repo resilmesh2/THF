@@ -1,0 +1,149 @@
+==========================================
+  Configuration Summary
+==========================================
+  OpenSearch Host: 18.100.95.208
+  OpenSearch Port: 9200
+  OpenSearch User: admin
+  API Host: 0.0.0.0
+  API Port: 8000
+  Log Level: info
+  Environment: development
+==========================================
+
+[INFO] Starting FastAPI backend on port 8000...
+[SUCCESS] FastAPI backend started (PID: 8)
+[FastAPI] INFO:     Started server process [7]
+[FastAPI] INFO:     Waiting for application startup.
+[FastAPI] {"error": "cannot import name 'initialize_agent' from 'langchain.agents' (/opt/venv/lib/python3.11/site-packages/langchain/agents/__init__.py)", "event": "Failed to initialize agent", "logger": "main", "level": "error", "timestamp": "2025-12-10T16:30:53.272832Z"}
+[FastAPI] ERROR:    Traceback (most recent call last):
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+[FastAPI]     async with self.lifespan_context(app) as maybe_state:
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 571, in __aenter__
+[FastAPI]     await self._router.startup()
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 671, in startup
+[FastAPI]     await handler()
+[FastAPI]   File "/app/main.py", line 80, in startup_event
+[FastAPI]     from agent.wazuh_agent import WazuhSecurityAgent
+[FastAPI]   File "/app/agent/__init__.py", line 5, in <module>
+[FastAPI]     from .wazuh_agent import WazuhSecurityAgent
+[FastAPI]   File "/app/agent/wazuh_agent.py", line 4, in <module>
+[FastAPI]     from langchain.agents import initialize_agent, AgentType
+[FastAPI] ImportError: cannot import name 'initialize_agent' from 'langchain.agents' (/opt/venv/lib/python3.11/site-packages/langchain/agents/__init__.py)
+[FastAPI]
+[FastAPI] ERROR:    Application startup failed. Exiting.
+[INFO] Checking FastAPI backend health...
+[WARNING] Waiting for FastAPI to be ready... (Attempt 1/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 2/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 3/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 4/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 5/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 6/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 7/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 8/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 9/10)
+[ERROR] FastAPI backend failed to start properly
+[ERROR] Check logs for more details
+[WARNING] Received shutdown signal. Stopping services...
+[INFO] Stopping FastAPI backend (PID: 8)...
+[SUCCESS] All services stopped gracefully
+[INFO] Validating environment configuration...
+[SUCCESS] All required environment variables are set
+[INFO] Starting THF (Threat Hunting Framework)...
+
+###
+Virtual Environment Langchain-related dependencies --
+d-----        24/10/2025     15:42                langchain
+d-----        17/09/2025     15:40                langchain-0.3.27.dist-info
+d-----        24/10/2025     15:42                langchain_anthropic
+d-----        17/09/2025     15:40                langchain_anthropic-0.3.20.dist-info
+d-----        24/10/2025     15:42                langchain_core
+d-----        17/09/2025     15:39                langchain_core-0.3.76.dist-info
+d-----        24/10/2025     15:42                langchain_text_splitters
+d-----        17/09/2025     15:40                langchain_text_splitters-0.3.11.dist-info
+d-----        24/10/2025     15:42                langsmith
+d-----        17/09/2025     15:39                langsmith-0.4.28.dist-info
+
+
+New errors from partner
+[INFO] Starting FastAPI backend on port 8000...
+[SUCCESS] FastAPI backend started (PID: 7)
+[FastAPI] INFO:     Started server process [6]
+[FastAPI] INFO:     Waiting for application startup.
+[FastAPI] {"error": "cannot import name 'AgentExecutor' from 'langchain.agents' (/opt/venv/lib/python3.11/site-packages/langchain/agents/__init__.py)", "event": "Failed to initialize agent", "logger": "main", "level": "error", "timestamp": "2025-12-11T09:01:58.216875Z"}
+[FastAPI] ERROR:    Traceback (most recent call last):
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+[FastAPI]     async with self.lifespan_context(app) as maybe_state:
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 571, in __aenter__
+[FastAPI]     await self._router.startup()
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 671, in startup
+[FastAPI]     await handler()
+[FastAPI]   File "/app/main.py", line 80, in startup_event
+[FastAPI]     from agent.wazuh_agent import WazuhSecurityAgent
+[FastAPI]   File "/app/agent/__init__.py", line 5, in <module>
+[FastAPI]     from .wazuh_agent import WazuhSecurityAgent
+[FastAPI]   File "/app/agent/wazuh_agent.py", line 4, in <module>
+[FastAPI]     from langchain.agents import AgentExecutor
+[FastAPI] ImportError: cannot import name 'AgentExecutor' from 'langchain.agents' (/opt/venv/lib/python3.11/site-packages/langchain/agents/__init__.py)
+[FastAPI]
+[FastAPI] ERROR:    Application startup failed. Exiting.
+[INFO] Checking FastAPI backend health...
+[WARNING] Waiting for FastAPI to be ready... (Attempt 1/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 2/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 3/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 4/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 5/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 6/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 7/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 8/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 9/10)
+[ERROR] FastAPI backend failed to start properly
+[ERROR] Check logs for more details
+[WARNING] Received shutdown signal. Stopping services...
+[INFO] Stopping FastAPI backend (PID: 7)...
+[SUCCESS] All services stopped gracefully
+[INFO] Validating environment configuration...
+[SUCCESS] All required environment variables are set
+[INFO] Starting THF (Threat Hunting Framework)...
+
+newest errors from partner after using from langchain.agents.agent import AgentExecutor
+
+[INFO] Starting FastAPI backend on port 8000...
+[SUCCESS] FastAPI backend started (PID: 7)
+[FastAPI] INFO:     Started server process [6]
+[FastAPI] INFO:     Waiting for application startup.
+[FastAPI] {"error": "invalid syntax (wazuh_agent.py, line 4)", "event": "Failed to initialize agent", "logger": "main", "level": "error", "timestamp": "2025-12-11T09:55:42.403961Z"}
+[FastAPI] ERROR:    Traceback (most recent call last):
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+[FastAPI]     async with self.lifespan_context(app) as maybe_state:
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 571, in __aenter__
+[FastAPI]     await self._router.startup()
+[FastAPI]   File "/opt/venv/lib/python3.11/site-packages/starlette/routing.py", line 671, in startup
+[FastAPI]     await handler()
+[FastAPI]   File "/app/main.py", line 80, in startup_event
+[FastAPI]     from agent.wazuh_agent import WazuhSecurityAgent
+[FastAPI]   File "/app/agent/__init__.py", line 5, in <module>
+[FastAPI]     from .wazuh_agent import WazuhSecurityAgent
+[FastAPI]   File "/app/agent/wazuh_agent.py", line 4
+[FastAPI]     langchain.agents.agent import AgentExecutor
+[FastAPI]                            ^^^^^^
+[FastAPI] SyntaxError: invalid syntax
+[FastAPI]
+[FastAPI] ERROR:    Application startup failed. Exiting.
+[INFO] Checking FastAPI backend health...
+[WARNING] Waiting for FastAPI to be ready... (Attempt 1/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 2/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 3/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 4/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 5/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 6/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 7/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 8/10)
+[WARNING] Waiting for FastAPI to be ready... (Attempt 9/10)
+[ERROR] FastAPI backend failed to start properly
+[ERROR] Check logs for more details
+[WARNING] Received shutdown signal. Stopping services...
+[INFO] Stopping FastAPI backend (PID: 7)...
+[SUCCESS] All services stopped gracefully
+[INFO] Validating environment configuration...
+[SUCCESS] All required environment variables are set
+[INFO] Starting THF (Threat Hunting Framework)...
