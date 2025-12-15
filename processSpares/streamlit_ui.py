@@ -97,9 +97,7 @@ if 'context_info' not in st.session_state:
     st.session_state.context_info = {}
 
 # Configuration
-# For Docker: use port 8030 (host mapping), for local dev: use port 8000
-API_PORT = os.getenv("API_PORT", "8000")  # Default to 8000 for local development
-API_BASE_URL = f"http://localhost:{API_PORT}"
+API_BASE_URL = "http://localhost:8000"
 
 def check_api_health():
     """Check if the API is running"""
@@ -276,7 +274,7 @@ if st.button("📋 Clear History"):
 if query and query.strip() and query != st.session_state.last_query:
     # Update last query to prevent duplicate submissions
     st.session_state.last_query = query
-    
+
     # Add user message to history
     st.session_state.messages.append({
         "role": "user",
@@ -347,11 +345,11 @@ if st.session_state.messages:
                     # Display timing information if available (for assistant messages)
                     if message["role"] == "assistant" and "timing" in message:
                         timing = message["timing"]
-                        total_time = timing.get("total_duration", 0)
+                        total_time = timing.get("total_time", 0)
                         llm_time = timing.get("total_llm_time", 0)
                         tool_time = timing.get("total_tool_time", 0)
                         frontend_total = timing.get("frontend_total", 0)
-                        iterations = timing.get("iterations", 0)
+                        iterations = timing.get("iteration_count", 0)
 
                         with st.expander("⏱️ Timing Information"):
                             col_a, col_b = st.columns(2)

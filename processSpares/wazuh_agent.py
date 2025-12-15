@@ -1,12 +1,10 @@
 """
 Wazuh Security Agent using LangChain
 """
-from langchain.agents import AgentExecutor
-from langchain.agents.structured_chat.base import create_structured_chat_agent
+from langchain.agents import initialize_agent, AgentType
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain.callbacks import LangChainTracer
 from langchain_anthropic import ChatAnthropic
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from typing import Dict, Any, List
 import structlog
 import os
@@ -45,7 +43,7 @@ class WazuhSecurityAgent:
             temperature=0.1,
             anthropic_api_key=anthropic_api_key,
             max_tokens=3000,  # Reduced to help prevent API overload
-            timeout=300  # Add timeout for overload handling
+            timeout=30  # Add timeout for overload handling
         )
         
         # Initialize tools
@@ -61,63 +59,6 @@ class WazuhSecurityAgent:
         # Initialize context processor
         self.context_processor = ConversationContextProcessor()
         
-        # Enhanced system prompt with context preservation instructions
-        self.system_prompt = """You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents, analyze alerts, and understand their security posture.
-
-Key guidelines:
-- Always use the appropriate tools for data retrieval
-- Provide actionable security insights
-- Highlight critical findings and potential threats
-- Explain technical concepts in clear terms
-- Suggest follow-up investigations when relevant
-- Maintain security context in all responses
-- Focus on the most important security information
-- If a tool returns placeholder data, acknowledge it's not yet implemented
-
-Available tools cover:
-- Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
-- Alert analysis and statistics across multiple alerts (analyze_alerts)
-- Threat detection and MITRE ATT&CK mapping (detect_threats)
-- Relationship mapping between entities (map_relationships)
-- Anomaly detection (find_anomalies)
-- Timeline reconstruction (trace_timeline)
-- Vulnerability checking (check_vulnerabilities)
-- Agent monitoring (monitor_agents)
-
-Always provide context about what the data means from a security perspective.
-
-**CRITICAL: Anomaly Detection Response Requirements**
-When presenting anomaly detection results, you MUST explicitly state threshold sources and RCF baseline information:
-
-**1. Threshold Source Identification (REQUIRED IN EVERY RESPONSE):**
-- If using RCF-learned thresholds: State "Using RCF-learned thresholds from [X-day] baseline (confidence: [Y]%)"
-- If using fallback thresholds: State "Using static fallback threshold of [value] (no RCF baseline data available)"
-- ALWAYS specify the baseline period (e.g., "7-day RCF baseline", "30-day behavioral baseline")
-
-**2. Three Threshold Types - Define When Mentioned:**
-- **User-Provided Threshold**: Numeric value from query (e.g., "threshold: 150") - fallback only when RCF unavailable
-- **RCF Feature Thresholds**: Internal OpenSearch plugin thresholds for each RCF feature (alert_count_threshold: 65.7, severity_sum_threshold: 297.4, etc.)
-- **RCF-Learned Thresholds**: Dynamic thresholds from baseline analysis - OVERRIDE user-provided values when available
-
-**3. Format Requirements for Anomaly Responses:**
-- Start with: "Based on [RCF-learned/static fallback] baseline analysis over the last [X] days..."
-- Include: Baseline confidence score (if RCF: "96.44% confidence")
-- Specify: Which thresholds were exceeded (e.g., "Alert count: 6,669 (exceeds RCF threshold 65.7 by 6,603)")
-- For each anomaly: Clearly state "X exceeds RCF-learned threshold Y" or "X exceeds static threshold Y"
-
-**4. Detection Type-Specific Terminology:**
-- **Threshold Detection**: "RCF-learned threshold breach" / "sudden burst exceeding baseline"
-- **Trend Detection**: "Progressive escalation above RCF trend baseline" / "directional shift from baseline pattern"
-- **Behavioral Detection**: "Behavioral deviation from RCF entity baseline" / "anomalous pattern compared to normal behavior"
-
-**5. Example Good Response Opening:**
-"Based on RCF-learned baseline analysis over the last 3 days with 96.44% confidence, I've identified 25 critical threshold breaches. The RCF-learned alert count threshold is 65.7 (baseline mean: 21.25), which was exceeded by the following hosts..."
-
-**6. Example Bad Response (AVOID):**
-"I found anomalies exceeding thresholds..." (Missing: which threshold type? What baseline? What confidence?)
-
-Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity."""
-
         # Initialize callbacks
         callbacks = []
         # Only enable LangSmith tracing if properly configured
@@ -127,70 +68,49 @@ Technical note: When context hints from previous input query like "these alerts"
                 logger.info("LangSmith tracing enabled")
         except Exception as e:
             logger.warning("Failed to initialize LangSmith tracing", error=str(e))
-
-        # Create prompt template for structured chat agent
-        # The system prompt needs to include tool information
-        system_message = f"""{self.system_prompt}
-
-You have access to the following tools:
-
-{{tools}}
-
-Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
-
-Valid "action" values: "Final Answer" or {{tool_names}}
-
-Provide only ONE action per $JSON_BLOB, as shown:
-
-```
-{{{{
-  "action": $TOOL_NAME,
-  "action_input": $INPUT
-}}}}
-```
-
-Follow this format:
-
-Question: input question to answer
-Thought: consider previous and subsequent steps
-Action:
-```
-$JSON_BLOB
-```
-Observation: action result
-... (repeat Thought/Action/Observation N times)
-Thought: I know what to respond
-Action:
-```
-{{{{
-  "action": "Final Answer",
-  "action_input": "Final response to human"
-}}}}
-```"""
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_message),
-            MessagesPlaceholder(variable_name="chat_history", optional=True),
-            ("human", "{input}\n\n{agent_scratchpad}"),
-        ])
-
-        # Create the structured chat agent
-        agent = create_structured_chat_agent(
+        
+        # Initialize agent
+        self.agent = initialize_agent(
+            tools=self.tools,
             llm=self.llm,
-            tools=self.tools,
-            prompt=prompt
-        )
-
-        # Create agent executor
-        self.agent = AgentExecutor(
-            agent=agent,
-            tools=self.tools,
+            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             memory=self.memory,
             verbose=True,
+            max_iterations=3,  # Reduced to save API calls
+            early_stopping_method="generate",  # Generate response instead of force stopping
             callbacks=callbacks,
-            handle_parsing_errors=True,
-            max_iterations=15  # Allow more iterations for complex threat hunting queries
+            handle_parsing_errors=True
         )
+        
+        # Enhanced system prompt with context preservation instructions
+        self.system_prompt = """
+        You are a Wazuh SIEM security analyst assistant. You help users investigate security incidents,
+        analyze alerts, and understand their security posture.
+
+        Key guidelines:
+        - Always use the appropriate tools for data retrieval
+        - Provide actionable security insights
+        - Highlight critical findings and potential threats
+        - Explain technical concepts in clear terms
+        - Suggest follow-up investigations when relevant
+        - Maintain security context in all responses
+        - Focus on the most important security information
+        - If a tool returns placeholder data, acknowledge it's not yet implemented
+
+        Available tools cover:
+        - Entity investigation for specific hosts, users, processes, files, IPs (investigate_entity)
+        - Alert analysis and statistics across multiple alerts (analyze_alerts)
+        - Threat detection and MITRE ATT&CK mapping (detect_threats)
+        - Relationship mapping between entities (map_relationships)
+        - Anomaly detection (find_anomalies)
+        - Timeline reconstruction (trace_timeline)
+        - Vulnerability checking (check_vulnerabilities)
+        - Agent monitoring (monitor_agents)
+
+        Always provide context about what the data means from a security perspective.
+
+        Technical note: When context hints from previous input query like "these alerts", "this host", "this command, these processes", etc appear, consider using previous input parameters to maintain query continuity.
+        """
         
         logger.info("Wazuh Security Agent initialized",
                    tools_count=len(self.tools),
@@ -227,68 +147,16 @@ Action:
             except Exception as e:
                 logger.warning("Failed to initialize LangSmith tracing", error=str(e))
 
-            # Create prompt template for structured chat agent
-            # The system prompt needs to include tool information
-            system_message = f"""{self.system_prompt}
-
-You have access to the following tools:
-
-{{tools}}
-
-Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
-
-Valid "action" values: "Final Answer" or {{tool_names}}
-
-Provide only ONE action per $JSON_BLOB, as shown:
-
-```
-{{{{
-  "action": $TOOL_NAME,
-  "action_input": $INPUT
-}}}}
-```
-
-Follow this format:
-
-Question: input question to answer
-Thought: consider previous and subsequent steps
-Action:
-```
-$JSON_BLOB
-```
-Observation: action result
-... (repeat Thought/Action/Observation N times)
-Thought: I know what to respond
-Action:
-```
-{{{{
-  "action": "Final Answer",
-  "action_input": "Final response to human"
-}}}}
-```"""
-
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", system_message),
-                MessagesPlaceholder(variable_name="chat_history", optional=True),
-                ("human", "{input}\n\n{agent_scratchpad}"),
-            ])
-
-            # Create the structured chat agent
-            agent = create_structured_chat_agent(
+            self.agent = initialize_agent(
+                tools=self.tools,
                 llm=self.llm,
-                tools=self.tools,
-                prompt=prompt
-            )
-
-            # Create agent executor with session-specific memory
-            self.agent = AgentExecutor(
-                agent=agent,
-                tools=self.tools,
+                agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
                 memory=session_memory,
                 verbose=True,
+                max_iterations=5,
+                early_stopping_method="force",
                 callbacks=callbacks,
-                handle_parsing_errors=True,
-                max_iterations=15  # Allow more iterations for complex threat hunting queries
+                handle_parsing_errors=True
             )
 
             logger.info("Agent memory updated for session", session_id=session_id)
@@ -342,7 +210,7 @@ Action:
                        query_preview=user_input[:100],
                        session_id=session_id,
                        response_length=len(response),
-                       total_time=timing_summary.get("total_duration", 0))
+                       total_time=timing_summary.get("total_time", 0))
 
             return {
                 "response": response,
@@ -376,8 +244,14 @@ Action:
                     )
                 else:
                     response = await self.agent.ainvoke({"input": user_input})
+
                 # Extract the output from the response dict
-                return response.get("output", str(response))
+                output = response.get("output", str(response))
+
+                # Post-process to extract final answer if output contains Action JSON
+                output = self._extract_final_answer(output)
+
+                return output
             except Exception as e:
                 error_str = str(e)
                 error_type = type(e).__name__
@@ -406,6 +280,49 @@ Action:
                     raise e
 
         return "Unable to process request due to system overload."
+
+    def _extract_final_answer(self, output: str) -> str:
+        """
+        Extract the final answer from agent output that might contain Action JSON format.
+
+        Args:
+            output: Raw output from agent which might contain Action JSON
+
+        Returns:
+            Cleaned final answer text
+        """
+        import json
+        import re
+
+        # Check if output starts with "Action:" which indicates unparsed action format
+        if output.strip().startswith("Action:"):
+            try:
+                # Try to extract JSON from the output
+                # Look for JSON block between ``` markers or extract the entire JSON
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', output, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    # Try to find JSON without code blocks
+                    json_match = re.search(r'\{.*\}', output, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                    else:
+                        # Can't find JSON, return original
+                        return output
+
+                # Parse the JSON
+                action_data = json.loads(json_str)
+
+                # Extract action_input which contains the actual answer
+                if "action_input" in action_data:
+                    return action_data["action_input"]
+
+            except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                logger.warning("Failed to parse Action JSON, returning original output", error=str(e))
+                return output
+
+        return output
 
     def _create_context_enriched_input(self, user_input: str, context_result: Dict[str, Any]) -> str:
         """
