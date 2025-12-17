@@ -5,6 +5,7 @@ from langchain.tools import BaseTool
 from langchain.callbacks.manager import AsyncCallbackManagerForToolRun
 from typing import Type
 import structlog
+import json
 from schemas.wazuh_schemas import *
 
 logger = structlog.get_logger()
@@ -173,17 +174,17 @@ class AnalyzeAlertsTool(WazuhBaseTool):
 
             result = await execute(self.opensearch_client, params)
             
-            logger.info("Alert analysis completed", 
-                       action=action, 
+            logger.info("Alert analysis completed",
+                       action=action,
                        results_count=result.get("total_alerts", 0))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Alert analysis failed", action=action, error=str(e))
 
             # Return structured error response instead of raising exception
-            return {
+            return json.dumps({
                 "error": True,
                 "error_message": f"Alert analysis failed: {str(e)}",
                 "action": action,
@@ -196,7 +197,7 @@ class AnalyzeAlertsTool(WazuhBaseTool):
                     "limit": limit,
                     "success": False
                 }
-            }
+            }, default=str)
 
 
 class InvestigateEntityTool(WazuhBaseTool):
@@ -259,8 +260,8 @@ class InvestigateEntityTool(WazuhBaseTool):
                         entity_id=entity_id,
                         query_type=query_type,
                         total_alerts=result.get("total_alerts", 0))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Entity investigation failed",
@@ -269,7 +270,7 @@ class InvestigateEntityTool(WazuhBaseTool):
                          error=str(e))
 
             # Return structured error response instead of raising exception
-            return {
+            return json.dumps({
                 "error": True,
                 "error_message": f"Entity investigation failed: {str(e)}",
                 "entity_type": entity_type,
@@ -283,7 +284,7 @@ class InvestigateEntityTool(WazuhBaseTool):
                     "entity_id": entity_id,
                     "success": False
                 }
-            }
+            }, default=str)
 
 
 class MapRelationshipsTool(WazuhBaseTool):
@@ -417,11 +418,11 @@ NOT FOR: Timelines ('when did X happen?') → use trace_timeline. Entity propert
                         source_type=source_type,
                         source_id=source_id,
                         relationship_type=relationship_type,
-                        total_results=result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_connections", 
+                        total_results=result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_connections",
                                       result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_access_events",
                                       result.get("relationship_summary", result.get("pattern_summary", result.get("correlation_summary", {}))).get("total_correlated_activities", 0))))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Relationship mapping failed",
@@ -498,8 +499,8 @@ class DetectThreatsTool(WazuhBaseTool):
             logger.info("Threat detection completed",
                         threat_type=threat_value,
                         total_results=result.get("total_alerts", 0))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Threat detection failed",
@@ -604,11 +605,11 @@ class FindAnomaliesTool(WazuhBaseTool):
                     from functions.find_anomalies.detect_threshold import execute
                     result = await execute(self.opensearch_client, params)
             
-            logger.info("Anomaly detection completed", 
+            logger.info("Anomaly detection completed",
                        anomaly_type=anomaly_type,
                        total_anomalies=result.get("summary", {}).get("total_anomalies", result.get("summary", {}).get("total_threshold_anomalies", result.get("summary", {}).get("total_pattern_anomalies", result.get("summary", {}).get("total_behavioral_anomalies", result.get("summary", {}).get("total_trend_anomalies", 0))))))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Anomaly detection failed", 
@@ -707,13 +708,13 @@ class TraceTimelineTool(WazuhBaseTool):
                 from functions.trace_timeline.show_sequence import execute
                 result = await execute(self.opensearch_client, params)
             
-            logger.info("Timeline reconstruction completed", 
+            logger.info("Timeline reconstruction completed",
                        view_type=view_type,
                        start_time=start_time,
                        end_time=end_time,
                        total_events=result.get("timeline_summary", result.get("progression_summary", result.get("correlation_summary", {}))).get("total_events", 0))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Timeline reconstruction failed", 
@@ -799,11 +800,11 @@ class CheckVulnerabilitiesTool(WazuhBaseTool):
                 from functions.check_vulnerabilities.list_by_entity import execute
                 result = await execute(self.opensearch_client, params)
             
-            logger.info("Vulnerability checking completed", 
+            logger.info("Vulnerability checking completed",
                        action=action,
                        total_results=result.get("total_vulnerability_alerts", result.get("total_cve_alerts", result.get("total_patch_events", 0))))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Vulnerability checking failed", 
@@ -887,11 +888,11 @@ class MonitorAgentsTool(WazuhBaseTool):
                 from functions.monitor_agents.status_check import execute
                 result = await execute(self.opensearch_client, params)
             
-            logger.info("Agent monitoring completed", 
+            logger.info("Agent monitoring completed",
                        action=action,
                        total_agents=result.get("agent_summary", result.get("version_summary", result.get("health_summary", {}))).get("total_agents", 0))
-            
-            return result
+
+            return json.dumps(result, default=str)
             
         except Exception as e:
             logger.error("Agent monitoring failed", 

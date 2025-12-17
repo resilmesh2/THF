@@ -314,7 +314,18 @@ Action:
 
             # Get conversation history for context analysis
             session_memory = self._get_session_memory(session_id)
-            chat_history = session_memory.chat_memory.messages if hasattr(session_memory, 'chat_memory') else []
+            chat_history = []
+            try:
+                # Safely access chat history - memory operations can fail
+                if hasattr(session_memory, 'chat_memory'):
+                    chat_history = session_memory.chat_memory.messages
+            except Exception as mem_error:
+                logger.warning("Failed to load chat history, using empty history",
+                             error=str(mem_error),
+                             session_id=session_id)
+                # Reset corrupted memory
+                session_memory.clear()
+                chat_history = []
 
             # Process context separately from LLM prompt
             context_result = self.context_processor.process_query_with_context(user_input, chat_history)
@@ -330,6 +341,13 @@ Action:
             enriched_input = user_input
             if context_result["context_applied"]:
                 enriched_input = self._create_context_enriched_input(user_input, context_result)
+
+            # Validate input is not empty
+            if not enriched_input or not enriched_input.strip():
+                logger.error("Empty input detected, using original user_input",
+                           enriched_input=enriched_input,
+                           user_input=user_input)
+                enriched_input = user_input or "Please provide a query."
 
             # Execute agent with context-aware input and timing callback
             response = await self._execute_with_retry(enriched_input, context_result, timing_callback=timing_callback)
@@ -368,14 +386,23 @@ Action:
 
         for attempt in range(max_retries + 1):
             try:
+                # Validate user_input is not empty
+                if not user_input or not user_input.strip():
+                    logger.error("Empty user_input in _execute_with_retry",
+                               user_input=user_input,
+                               attempt=attempt + 1)
+                    raise ValueError("Empty user input provided to agent")
+
                 # Agent expects input as dict with "input" key for STRUCTURED_CHAT type
+                agent_input = {"input": user_input.strip()}
+
                 if timing_callback:
                     response = await self.agent.ainvoke(
-                        {"input": user_input},
+                        agent_input,
                         config={"callbacks": [timing_callback]}
                     )
                 else:
-                    response = await self.agent.ainvoke({"input": user_input})
+                    response = await self.agent.ainvoke(agent_input)
                 # Extract the output from the response dict
                 return response.get("output", str(response))
             except Exception as e:
@@ -398,6 +425,22 @@ Action:
                         continue
                     else:
                         return "I apologize, but the system is currently experiencing high load. Please try your query again in a few moments, or try a more specific question to reduce processing requirements."
+                elif "at least one message is required" in error_str.lower() or ("400" in error_str and "messages" in error_str.lower()):
+                    # Memory/message construction failure - reset and retry
+                    logger.error("Empty messages error detected - memory corruption",
+                               error=error_str,
+                               user_input=user_input[:200])
+                    if attempt < max_retries:
+                        # Try to recover by resetting the agent memory
+                        try:
+                            if hasattr(self, 'agent') and hasattr(self.agent, 'memory'):
+                                self.agent.memory.clear()
+                            logger.info("Memory cleared, retrying query")
+                            await asyncio.sleep(1)
+                            continue
+                        except Exception as reset_error:
+                            logger.error("Failed to reset memory", error=str(reset_error))
+                    return "I encountered a memory state error. Please try rephrasing your query with explicit parameters (e.g., specify host, timeframe, and entity names directly) rather than referencing previous context."
                 elif "500" in error_str or "api_error" in error_str.lower():
                     # API 500 errors - provide helpful context
                     return f"The AI service encountered an error processing your query. This may be due to: (1) ambiguous entity references - try being more specific (e.g., use full process path instead of just name), (2) complex contextual queries - try rephrasing with explicit parameters, or (3) temporary API issues. Original error: {error_str}"
