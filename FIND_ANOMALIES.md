@@ -52,10 +52,14 @@ Threshold detection identifies **sudden bursts of anomalous activity** within sh
 ### How It Works
 
 1. Queries the threshold detector's anomaly results index
-2. Retrieves RCF-learned baselines for the configured baseline period (default: 17 days)
-3. Compares current metrics against learned thresholds
-4. Identifies hosts, users, rules, and patterns exceeding thresholds
-5. Scores anomalies based on deviation from baseline
+2. Retrieves RCF-learned baselines for the specified baseline time window (default: 17 days if not specified)
+3. **Threshold Selection**:
+   - **If RCF baselines are available**: RCF-learned dynamic thresholds are used and **override any user-provided threshold**
+   - **If no RCF baseline data exists**: User-provided threshold from the query is used as a fallback (or default values if no threshold specified)
+   - This ensures optimal accuracy by prioritizing machine-learned baselines over static thresholds
+4. Compares current metrics against the selected thresholds (RCF-learned or fallback)
+5. Identifies hosts, users, rules, and patterns exceeding thresholds
+6. Scores anomalies based on deviation from baseline, with higher confidence scores for RCF-based detections
 
 ---
 
@@ -101,7 +105,7 @@ Trend detection identifies **escalating and progressive patterns** of anomalous 
 3. Calculates linear regression slopes for trend detection
 4. Identifies escalation patterns and directional shifts
 5. Compares current trends against learned baseline thresholds
-6. Detects both increasing and decreasing trends (configurable)
+6. Detects both increasing and decreasing trends
 
 ---
 
@@ -143,7 +147,7 @@ Behavioral detection identifies **long-term behavioral changes** in entity activ
 ### How It Works
 
 1. Queries the behavioral detector's anomaly results index
-2. Retrieves RCF-learned behavioral baselines (default: 17 days)
+2. Retrieves RCF-learned behavioral baselines
 3. Analyzes entity-specific patterns using 1-hour intervals
 4. Compares current behavior against learned thresholds
 5. Identifies deviations in user, host, process, and file behaviors
@@ -302,7 +306,7 @@ You create the three types of detectors and the maximum number of RCF features a
    }
    ```
 
-#### Option C: Behavioral Anomaly Detector
+#### C: Behavioral Anomaly Detector
 
 **Configuration:**
 - **Detector Name**: `wazuh-behavioral-anomaly-detector`
@@ -396,7 +400,7 @@ For each detector:
 2. Click **Create detector** or **Update detector**
 3. Navigate to the detector's detail page
 4. Click **Start detector** to begin anomaly detection
-5. Wait for the learning period (typically 7-14 days for optimal baselines)
+5. Wait for the learning period (typically 7-10 days for optimal baselines)
 
 ### Step 5: Monitor Results
 
@@ -436,7 +440,7 @@ OPENSEARCH_VERIFY_CERTS=false
 
 ### Baseline Learning Period
 - Allow detectors to run for at least 7-14 days before relying on results
-- Longer baseline periods (30+ days) provide better behavioral context
+- Longer baseline periods (14+ days) provide better behavioral context
 - Update baselines regularly in dynamic environments
 
 ### Sensitivity Tuning
