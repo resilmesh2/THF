@@ -2,12 +2,12 @@ services:
   # ==============================================================================
   # THF (Threat Hunting Framework) - Main Application
   # ==============================================================================
-  thf:
+  resilmesh_tap_thf:
     build:
       context: .
       dockerfile: Dockerfile
     image: thf:latest
-    container_name: thf-app
+    container_name: resilmesh_tap_thf
 
     # Port mappings
     ports:
