@@ -184,7 +184,7 @@ docker-compose up --build
 2. Uncomment the Redis section (remove the `#` symbols)
 3. Update `.env`:
    ```env
-   REDIS_HOST=redis
+   REDIS_HOST=resilmesh-redis
    ENABLE_CACHING=true
    ```
 4. Restart: `docker-compose up`
