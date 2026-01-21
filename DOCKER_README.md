@@ -144,7 +144,7 @@ docker-compose up --build
 
 **Solution:**
 - Wait 30-60 seconds - FastAPI takes time to start
-- Check logs: `docker-compose logs thf`
+- Check logs: `docker-compose logs resilmesh-tap-thf`
 - Verify your `ANTHROPIC_API_KEY` is correct in `.env`
 
 ### Problem: "Missing required environment variables"
@@ -184,7 +184,7 @@ docker-compose up --build
 2. Uncomment the Redis section (remove the `#` symbols)
 3. Update `.env`:
    ```env
-   REDIS_HOST=redis
+   REDIS_HOST=resilmesh-redis
    ENABLE_CACHING=true
    ```
 4. Restart: `docker-compose up`
@@ -232,7 +232,7 @@ All services should show `healthy` status.
 docker-compose logs -f
 
 # Just the main app
-docker-compose logs -f thf
+docker-compose logs -f resilmesh-tap-thf
 ```
 
 ### Check resource usage:
@@ -265,7 +265,7 @@ docker rmi thf:latest
 
 If you're stuck:
 
-1. **Check the logs**: `docker-compose logs -f thf`
+1. **Check the logs**: `docker-compose logs -f resilmesh-tap-thf`
 2. **Verify your `.env` file** has all required values
 3. **Test connectivity** to your Wazuh/OpenSearch servers
 4. **Open an issue** on GitHub with:
