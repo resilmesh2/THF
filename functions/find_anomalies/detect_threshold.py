@@ -420,7 +420,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "hourly_distribution": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h"
+                                "fixed_interval": "1h"
                             }
                         }
                     }
@@ -491,7 +491,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "new_entities": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1d"
+                        "fixed_interval": "1d"
                     },
                     "aggs": {
                         "unique_hosts": {

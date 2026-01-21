@@ -58,7 +58,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "hourly_activity": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1h",
+                        "fixed_interval": "1h",
                         "format": "yyyy-MM-dd HH:mm"
                     },
                     "aggs": {
@@ -73,21 +73,21 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "daily_patterns": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1d",
+                        "fixed_interval": "1d",
                         "format": "yyyy-MM-dd"
                     }
                 },
                 "hour_of_day": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1h",
+                        "fixed_interval": "1h",
                         "format": "HH"
                     }
                 },
                 "day_of_week": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1d",
+                        "fixed_interval": "1d",
                         "format": "e"
                     }
                 },
@@ -100,7 +100,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "activity_timeline": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h",
+                                "fixed_interval": "1h",
                                 "format": "yyyy-MM-dd HH:mm"
                             }
                         }
@@ -115,7 +115,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "process_timeline": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h",
+                                "fixed_interval": "1h",
                                 "format": "yyyy-MM-dd HH:mm"
                             }
                         }
@@ -130,7 +130,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "user_timeline": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h",
+                                "fixed_interval": "1h",
                                 "format": "yyyy-MM-dd HH:mm"
                             }
                         }
@@ -145,7 +145,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "network_timeline": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h",
+                                "fixed_interval": "1h",
                                 "format": "yyyy-MM-dd HH:mm"
                             }
                         }
@@ -154,7 +154,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "activity_bursts": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "15m",
+                        "fixed_interval": "15m",
                         "format": "yyyy-MM-dd HH:mm"
                     },
                     "aggs": {

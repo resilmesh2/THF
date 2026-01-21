@@ -219,7 +219,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "behavioral_time_series": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1h",  # Match behavioral detector 1-hour intervals
+                        "fixed_interval": "1h",  # Match behavioral detector 1-hour intervals
                         "order": {"_key": "asc"}
                     },
                     "aggs": {
@@ -300,7 +300,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "temporal_activity": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "2h"
+                                "fixed_interval": "2h"
                             }
                         }
                     }
@@ -361,7 +361,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "execution_frequency": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "2h"
+                                "fixed_interval": "2h"
                             }
                         }
                     }
@@ -375,7 +375,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "access_frequency": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "4h"
+                                "fixed_interval": "4h"
                             }
                         },
                         "host_accessing": {

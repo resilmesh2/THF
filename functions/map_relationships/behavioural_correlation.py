@@ -421,7 +421,7 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
             "temporal_correlation": {
                 "date_histogram": {
                     "field": "@timestamp",
-                    "interval": "15m",
+                    "fixed_interval": "15m",
                     "min_doc_count": 1
                 },
                 "aggs": {
@@ -502,7 +502,7 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     "access_timeline": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "1h",
+                            "fixed_interval": "1h",
                             "min_doc_count": 1
                         },
                         "aggs": {
@@ -520,7 +520,7 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     "behavioral_patterns": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "4h"
+                            "fixed_interval": "4h"
                         },
                         "aggs": {
                             "access_frequency": {"value_count": {"field": "_id"}},
@@ -548,7 +548,7 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     "correlation_timeline": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "30m"
+                            "fixed_interval": "30m"
                         }
                     },
                     "shared_activities": {
@@ -590,7 +590,7 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     "connection_burst_detection": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "5m"
+                            "fixed_interval": "5m"
                         },
                         "aggs": {
                             "burst_threshold": {
@@ -644,13 +644,13 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     "temporal_pattern": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "2h"
+                            "fixed_interval": "2h"
                         }
                     },
                     "brute_force_detection": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "1m"
+                            "fixed_interval": "1m"
                         },
                         "aggs": {
                             "rapid_attempts": {
@@ -690,7 +690,7 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     "access_patterns": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "interval": "6h"
+                            "fixed_interval": "6h"
                         }
                     }
                 }

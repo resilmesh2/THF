@@ -210,7 +210,7 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
                         "activity_timeline": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h",
+                                "fixed_interval": "1h",
                                 "order": {"_key": "desc"}
                             }
                         },
@@ -308,7 +308,7 @@ async def _get_alert_health_data(opensearch_client, timeframe: str, agent_id: st
                 "environment_health": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1h",
+                        "fixed_interval": "1h",
                         "order": {"_key": "desc"}
                     },
                     "aggs": {

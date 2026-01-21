@@ -758,7 +758,7 @@ def _get_connection_sub_aggregations() -> Dict[str, Any]:
         "temporal_distribution": {
             "date_histogram": {
                 "field": "@timestamp",
-                "interval": "1h"
+                "fixed_interval": "1h"
             }
         },
         "latest_connection": {

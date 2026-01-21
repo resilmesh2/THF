@@ -445,7 +445,7 @@ def build_severity_distribution() -> Dict[str, Any]:
             "severity_over_time": {
                 "date_histogram": {
                     "field": "@timestamp",
-                    "interval": "4h",
+                    "fixed_interval": "4h",
                     "format": "yyyy-MM-dd HH:mm"
                 }
             }
@@ -506,7 +506,7 @@ def build_user_distribution() -> Dict[str, Any]:
             "user_activity_timeline": {
                 "date_histogram": {
                     "field": "@timestamp",
-                    "interval": "2h",
+                    "fixed_interval": "2h",
                     "format": "yyyy-MM-dd HH:mm"
                 }
             }
@@ -518,7 +518,7 @@ def build_time_distribution() -> Dict[str, Any]:
     return {
         "date_histogram": {
             "field": "@timestamp",
-            "interval": "1h",
+            "fixed_interval": "1h",
             "format": "yyyy-MM-dd HH:mm"
         },
         "aggs": {
@@ -551,7 +551,7 @@ def build_enhanced_time_distribution(breakdown_dimension: str) -> Dict[str, Any]
     return {
         "date_histogram": {
             "field": "@timestamp",
-            "interval": "1h",
+            "fixed_interval": "1h",
             "format": "yyyy-MM-dd HH:mm",
             "min_doc_count": 0  # Include empty buckets for complete histogram
         },

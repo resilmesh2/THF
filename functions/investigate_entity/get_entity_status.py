@@ -140,7 +140,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "monitoring_health": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "5m",
+                        "fixed_interval": "5m",
                         "format": "yyyy-MM-dd HH:mm"
                     },
                     "aggs": {
@@ -175,7 +175,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "process_activity": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "5m",
+                                "fixed_interval": "5m",
                                 "format": "yyyy-MM-dd HH:mm"
                             }
                         }

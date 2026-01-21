@@ -95,7 +95,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "time_distribution": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "30m"
+                                "fixed_interval": "30m"
                             }
                         }
                     }

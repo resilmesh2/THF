@@ -607,7 +607,7 @@ class WazuhOpenSearchClient:
             return {
                 "date_histogram": {
                     "field": field,
-                    "interval": "1h",
+                    "fixed_interval": "1h",
                     "format": "yyyy-MM-dd HH:mm:ss"
                 }
             }

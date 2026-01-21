@@ -115,7 +115,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "activity_timeline": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1h",
+                        "fixed_interval": "1h",
                         "format": "yyyy-MM-dd HH:mm"
                     }
                 }

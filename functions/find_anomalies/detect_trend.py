@@ -288,7 +288,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "trend_time_series": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "30m",  # Match trend detector 30-minute intervals
+                        "fixed_interval": "30m",  # Match trend detector 30-minute intervals
                         "order": {"_key": "asc"}
                     },
                     "aggs": {
@@ -328,13 +328,13 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "time_series": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "2h"
+                                "fixed_interval": "2h"
                             }
                         },
                         "severity_trend": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "2h"
+                                "fixed_interval": "2h"
                             },
                             "aggs": {
                                 "avg_severity": {
@@ -355,7 +355,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "time_series": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "2h"
+                                "fixed_interval": "2h"
                             }
                         }
                     }
@@ -369,7 +369,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "time_series": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h"
+                                "fixed_interval": "1h"
                             }
                         },
                         "rule_description": {
@@ -394,14 +394,14 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "time_series": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "1h"
+                                "fixed_interval": "1h"
                             }
                         }
                     }
                 }
             }
         }
-        
+
         # Execute search
         response = await opensearch_client.search(
             index=opensearch_client.alerts_index,

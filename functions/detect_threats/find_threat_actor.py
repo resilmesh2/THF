@@ -162,7 +162,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "attack_timeline": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "2h",
+                        "fixed_interval": "2h",
                         "order": {"_key": "desc"}
                     },
                     "aggs": {

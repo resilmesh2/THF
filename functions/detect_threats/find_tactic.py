@@ -119,7 +119,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                         "timeline": {
                             "date_histogram": {
                                 "field": "@timestamp",
-                                "interval": "4h",
+                                "fixed_interval": "4h",
                                 "order": {"_key": "desc"}
                             }
                         }

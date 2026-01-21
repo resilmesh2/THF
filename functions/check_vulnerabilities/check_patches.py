@@ -71,7 +71,7 @@ async def execute(opensearch_client, params: Dict[str, Any]) -> Dict[str, Any]:
                 "patch_timeline": {
                     "date_histogram": {
                         "field": "@timestamp",
-                        "interval": "1d",
+                        "fixed_interval": "1d",
                         "order": {"_key": "desc"}
                     },
                     "aggs": {
