@@ -61,81 +61,48 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
         Ranked results with counts and latest alert details
     """
     try:
-        # Extract parameters
+        # Extraction and Normalization of Parameters ---
         raw_group_by = params.get("group_by") or "agent.name"
-        
-        # Apply field mapping for user-friendly field names
         field_mapping = get_field_mapping()
         group_by = field_mapping.get(raw_group_by.lower(), raw_group_by) if isinstance(raw_group_by, str) else raw_group_by
         limit = params.get("limit", 10)
         time_range = params.get("time_range", "7d")
-        filters = params.get("filters", {})
+        filters = params.get("filters", {}) or {}
 
-        # Handle case where filters is None FIRST
-        if filters is None:
-            filters = {}
-
-        # Apply field mapping to convert user-friendly names to Wazuh field names
-        field_mapping = get_field_mapping()
+        # Apply field mapping to filters
         mapped_filters = {}
         for key, value in filters.items():
-            mapped_key = field_mapping.get(key, key)  # Use mapping if available, otherwise keep original
+            mapped_key = field_mapping.get(key, key)
             mapped_filters[mapped_key] = value
         filters = mapped_filters
 
-        # Handle intelligent process name filtering
+        # Handle intelligent process and rule filtering
         process_fields = ["data.win.eventdata.originalFileName", "data.win.eventdata.image"]
         for field in process_fields:
             if field in filters and isinstance(filters[field], str):
-                process_value = filters[field]
-                # Auto-append .exe if not present and not a full path
-                if not process_value.endswith('.exe') and '\\' not in process_value and '/' not in process_value:
-                    filters[field] = process_value + '.exe'
-                    logger.info("Auto-corrected process name",
-                               original=process_value, corrected=filters[field])
+                val = filters[field]
+                if not val.endswith('.exe') and '\\' not in val and '/' not in val:
+                    filters[field] = val + '.exe'
 
-        # Handle intelligent rule filtering - redirect text searches to rule.description
         if "rule.id" in filters and isinstance(filters["rule.id"], str):
-            rule_value = filters["rule.id"]
-            # If rule value is not numeric, likely searching for rule content
-            if not rule_value.isdigit():
-                # Move to rule.description for text-based searches
-                filters["rule.description"] = rule_value
-                del filters["rule.id"]
-                logger.info("Redirected text rule search to description",
-                           search_term=rule_value)
+            if not filters["rule.id"].isdigit():
+                filters["rule.description"] = filters.pop("rule.id")
 
-        # Convert string values to arrays for known Wazuh array fields
         filters = normalize_wazuh_array_fields(filters)
         
-        # Handle case where filters is None
-        if filters is None:
-            filters = {}
-        
-        # Handle separate time_start and time_end parameters from LLM
+        # Handle time parameters from LLM
         time_start = filters.pop("time_start", None)
         time_end = filters.pop("time_end", None)
-        
-        # If we have separate start/end times, construct a time range
         if time_start and time_end:
-            from datetime import date
-            today = date.today().strftime("%Y-%m-%d")
             time_range = f"{time_start} until {time_end}"
-            logger.info("Converting separate time parameters to range", 
-                       time_start=time_start, time_end=time_end, time_range=time_range)
         
-        # Handle time_range in filters (LLM sometimes puts it there instead of main params)
         filter_time_range = filters.pop("time_range", None)
         if filter_time_range:
             time_range = filter_time_range
-            logger.info("Using time_range from filters", time_range=time_range)
+
+        logger.info("Ranking alerts", group_by=group_by, limit=limit, time_range=time_range)
         
-        logger.info("Ranking alerts", 
-                   group_by=group_by, 
-                   limit=limit, 
-                   time_range=time_range)
-        
-        # Build base query
+        # ---  Build OpenSearch Query ---
         query = {
             "query": {
                 "bool": {
@@ -162,13 +129,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                                 "size": 1,
                                 "sort": [{"@timestamp": {"order": "desc"}}],
                                 "_source": [
-                                    "rule.description",
-                                    "rule.level",
-                                    "rule.id",
-                                    "rule.groups",
-                                    "@timestamp",
-                                    "data.srcip",
-                                    "data.srcuser"
+                                    "rule.description", "rule.level", "rule.id", 
+                                    "rule.groups", "@timestamp", "data.srcip", "data.srcuser",
+                                    "data.win.eventdata" # Added to ensure win data is retrieved
                                 ]
                             }
                         },
@@ -183,23 +146,35 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             }
         }
         
-        # Add filters if provided
         if filters:
-            filter_queries = opensearch_client.build_filters_query(filters)
-            query["query"]["bool"]["must"].extend(filter_queries)
+            query["query"]["bool"]["must"].extend(opensearch_client.build_filters_query(filters))
         
-        # Execute query
+        # ---  Execute Query and Handle Response Safely ---
         response = await opensearch_client.search(
             opensearch_client.alerts_index, 
             query, 
-            size=0  # We only want aggregations
+            size=0
         )
         
-        # Format results
-        total_alerts = response["aggregations"]["total_count"]["value"]
+        # Check if 'aggregations' exists (Prevent KeyError)
+        if "aggregations" not in response:
+            logger.error("OpenSearch response missing aggregations", response=response)
+            return {
+                "total_alerts": 0,
+                "time_range": time_range,
+                "grouped_by": group_by,
+                "ranked_entities": [],
+                "error": response.get("error", "No aggregations returned from OpenSearch")
+            }
+
+        # --- Format Results with Protective Access ---
+        aggs = response["aggregations"]
+        total_alerts = aggs.get("total_count", {}).get("value", 0)
         
         ranked_results = []
-        for bucket in response["aggregations"]["ranked_entities"]["buckets"]:
+        buckets = aggs.get("ranked_entities", {}).get("buckets", [])
+        
+        for bucket in buckets:
             entity_data = {
                 "entity": bucket["key"],
                 "alert_count": bucket["doc_count"],
@@ -207,10 +182,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                 "severity_breakdown": {}
             }
             
-            # Extract latest alert details
-            if bucket["latest_alert"]["hits"]["hits"]:
-                latest = bucket["latest_alert"]["hits"]["hits"][0]["_source"]
-                # Extract Windows event data for detailed process information
+            # Safe extraction of Top Hits
+            latest_hits = bucket.get("latest_alert", {}).get("hits", {}).get("hits", [])
+            if latest_hits:
+                latest = latest_hits[0].get("_source", {})
                 win_eventdata = latest.get("data", {}).get("win", {}).get("eventdata", {})
 
                 entity_data["latest_alert"] = {
@@ -221,7 +196,6 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                     "timestamp": latest.get("@timestamp", ""),
                     "source_ip": latest.get("data", {}).get("srcip", ""),
                     "source_user": latest.get("data", {}).get("srcuser", ""),
-                    # Process information with proper field extraction
                     "process_name": win_eventdata.get("originalFileName", win_eventdata.get("processName", "")),
                     "process_image": win_eventdata.get("image", ""),
                     "command_line": win_eventdata.get("commandLine", ""),
@@ -229,9 +203,10 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                     "target_filename": win_eventdata.get("targetFilename", "")
                 }
             
-            # Extract severity breakdown
-            for severity_bucket in bucket["severity_breakdown"]["buckets"]:
-                entity_data["severity_breakdown"][str(severity_bucket["key"])] = severity_bucket["doc_count"]
+            # Safe extraction of Severity Breakdown
+            sev_buckets = bucket.get("severity_breakdown", {}).get("buckets", [])
+            for sev_bucket in sev_buckets:
+                entity_data["severity_breakdown"][str(sev_bucket["key"])] = sev_bucket["doc_count"]
             
             ranked_results.append(entity_data)
         
@@ -246,18 +221,18 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
             }
         }
         
-        logger.info("Alert ranking completed", 
-                   total_alerts=total_alerts,
-                   entities_found=len(ranked_results),
-                   group_by=group_by)
-        
+        logger.info("Alert ranking completed", total_alerts=total_alerts, entities_found=len(ranked_results))
         return result
         
     except Exception as e:
-        logger.error("Alert ranking failed", 
-                    error=str(e), 
-                    params=params)
-        raise Exception(f"Failed to rank alerts: {str(e)}")
+        logger.error("Alert ranking failed", error=str(e), params=params)
+        # We still raise or return a structured error
+        return {
+            "error": True,
+            "error_message": f"Critical failure in ranking alerts: {str(e)}",
+            "total_alerts": 0,
+            "ranked_entities": []
+        }
 
 def get_severity_name(level: int) -> str:
     """
