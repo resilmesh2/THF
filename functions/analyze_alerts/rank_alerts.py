@@ -160,13 +160,13 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                         "latest_alert": {
                             "top_hits": {
                                 "size": 1,
-                                "sort": [{"timestamp": {"order": "desc"}}],
+                                "sort": [{"@timestamp": {"order": "desc"}}],
                                 "_source": [
                                     "rule.description",
                                     "rule.level",
                                     "rule.id",
                                     "rule.groups",
-                                    "timestamp",
+                                    "@timestamp",
                                     "data.srcip",
                                     "data.srcuser"
                                 ]
@@ -218,7 +218,7 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                     "rule_level": latest.get("rule", {}).get("level", 0),
                     "rule_id": latest.get("rule", {}).get("id", ""),
                     "rule_groups": latest.get("rule", {}).get("groups", []),
-                    "timestamp": latest.get("timestamp", ""),
+                    "timestamp": latest.get("@timestamp", ""),
                     "source_ip": latest.get("data", {}).get("srcip", ""),
                     "source_user": latest.get("data", {}).get("srcuser", ""),
                     # Process information with proper field extraction
