@@ -163,7 +163,9 @@ async def execute(opensearch_client: WazuhOpenSearchClient, params: Dict[str, An
                                 "buckets_path": {
                                     "count": "_count"
                                 },
-                                "script": "params.count > 5"
+                                "script": {
+                                    "source": "params.count > 5"
+                                }
                             }
                         }
                     }

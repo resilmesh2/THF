@@ -580,7 +580,9 @@ def _build_behavioral_correlation_query(source_type: str, source_id: str, target
                     },
                     "temporal_distribution": {
                         "histogram": {
-                            "script": "doc['@timestamp'].value.getHour()",
+                            "script": {
+                                "source": "doc['@timestamp'].value.getHour()"
+                            },
                             "interval": 1
                         }
                     },
