@@ -2,12 +2,24 @@
 Custom LangChain callback handler for detailed timing measurements
 """
 from langchain.callbacks.base import BaseCallbackHandler
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Dict, List
 import structlog
 import time
 
 logger = structlog.get_logger()
+
+# Per-model pricing (USD per 1M tokens)
+MODEL_PRICING = {
+    "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
+    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00},
+}
+DEFAULT_PRICING = {"input": 3.00, "output": 15.00}  # Fallback to Sonnet rates
+
+
+def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Calculate USD cost for a given model and token counts."""
+    pricing = MODEL_PRICING.get(model, DEFAULT_PRICING)
+    return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
 
 class TimingCallbackHandler(BaseCallbackHandler):
     """
@@ -29,6 +41,10 @@ class TimingCallbackHandler(BaseCallbackHandler):
         self.current_tool_name = None
         self.current_chain_start = None
         self.iteration_count = 0
+        # Token usage tracking
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.model_name = None
 
     def on_llm_start(
         self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
@@ -41,12 +57,49 @@ class TimingCallbackHandler(BaseCallbackHandler):
         """Run when LLM ends running."""
         if self.current_llm_start:
             duration = time.time() - self.current_llm_start
+            input_tokens = 0
+            output_tokens = 0
+
+            # Extract token usage from LLMResult
+            try:
+                llm_output = getattr(response, "llm_output", None) or {}
+                # langchain-anthropic stores usage in llm_output["usage"]
+                usage = llm_output.get("usage", {})
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+
+                # Capture model name for cost calculation
+                if not self.model_name and llm_output.get("model"):
+                    self.model_name = llm_output["model"]
+
+                # Fallback: check generations[].message.usage_metadata (newer langchain-core)
+                if input_tokens == 0 and output_tokens == 0:
+                    try:
+                        for gen_list in getattr(response, "generations", []):
+                            for gen in (gen_list if isinstance(gen_list, list) else [gen_list]):
+                                msg = getattr(gen, "message", None)
+                                if msg:
+                                    meta = getattr(msg, "usage_metadata", None) or {}
+                                    input_tokens += meta.get("input_tokens", 0)
+                                    output_tokens += meta.get("output_tokens", 0)
+                                    if not self.model_name:
+                                        resp_meta = getattr(msg, "response_metadata", None) or {}
+                                        self.model_name = resp_meta.get("model")
+                    except Exception:
+                        pass
+
+                self.total_input_tokens += input_tokens
+                self.total_output_tokens += output_tokens
+            except Exception:
+                pass
+
             self.timings["llm_calls"].append({
                 "start": self.current_llm_start,
                 "duration": duration,
-                "iteration": self.iteration_count
+                "iteration": self.iteration_count,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens
             })
-            # Removed logging to improve performance
             self.current_llm_start = None
 
     def on_llm_error(self, error: Exception, **kwargs: Any) -> None:
@@ -167,6 +220,16 @@ class TimingCallbackHandler(BaseCallbackHandler):
             for i, call in enumerate(self.timings["tool_calls"], 1):
                 print(f"  {i}. {call['tool_name']}: {call['duration']:.3f}s (Iteration {call['iteration']})")
 
+        # Token usage & cost summary
+        total_tokens = self.total_input_tokens + self.total_output_tokens
+        model = self.model_name or "claude-sonnet-4-20250514"
+        cost = calculate_cost(model, self.total_input_tokens, self.total_output_tokens)
+        print(f"\n💰 Token Usage & Cost (model: {model}):")
+        print(f"  Input Tokens:  {self.total_input_tokens:,}")
+        print(f"  Output Tokens: {self.total_output_tokens:,}")
+        print(f"  Total Tokens:  {total_tokens:,}")
+        print(f"  Estimated Cost: ${cost:.6f}")
+
         print("="*80 + "\n")
 
         # Also log structured data
@@ -176,7 +239,12 @@ class TimingCallbackHandler(BaseCallbackHandler):
                    total_tool_time=round(total_tool_time, 3),
                    llm_calls=len(self.timings["llm_calls"]),
                    tool_calls=len(self.timings["tool_calls"]),
-                   iterations=self.iteration_count)
+                   iterations=self.iteration_count,
+                   input_tokens=self.total_input_tokens,
+                   output_tokens=self.total_output_tokens,
+                   total_tokens=total_tokens,
+                   cost_usd=round(cost, 6),
+                   model=model)
 
     def _percentage(self, part: float, total: float) -> str:
         """Calculate percentage and return as formatted string"""
@@ -193,6 +261,10 @@ class TimingCallbackHandler(BaseCallbackHandler):
         total_llm_time = sum(call["duration"] for call in self.timings["llm_calls"])
         total_tool_time = sum(call["duration"] for call in self.timings["tool_calls"])
 
+        total_tokens = self.total_input_tokens + self.total_output_tokens
+        model = self.model_name or "claude-sonnet-4-20250514"
+        cost = calculate_cost(model, self.total_input_tokens, self.total_output_tokens)
+
         return {
             "total_duration": round(total_duration, 3),
             "total_llm_time": round(total_llm_time, 3),
@@ -202,5 +274,22 @@ class TimingCallbackHandler(BaseCallbackHandler):
             "tool_calls_count": len(self.timings["tool_calls"]),
             "iterations": self.iteration_count,
             "llm_calls": self.timings["llm_calls"],
-            "tool_calls": self.timings["tool_calls"]
+            "tool_calls": self.timings["tool_calls"],
+            "token_summary": {
+                "model": model,
+                "totals": {
+                    "input_tokens": self.total_input_tokens,
+                    "output_tokens": self.total_output_tokens,
+                    "total_tokens": total_tokens,
+                    "cost_usd": round(cost, 6)
+                },
+                "per_call": [
+                    {
+                        "call": i + 1,
+                        "input_tokens": call.get("input_tokens", 0),
+                        "output_tokens": call.get("output_tokens", 0),
+                    }
+                    for i, call in enumerate(self.timings["llm_calls"])
+                ]
+            }
         }

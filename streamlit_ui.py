@@ -369,13 +369,36 @@ if st.session_state.messages:
                             if timing.get("llm_calls"):
                                 with st.expander("LLM Calls Detail"):
                                     for idx, call in enumerate(timing["llm_calls"], 1):
-                                        st.text(f"Call {idx}: {call['duration']:.2f}s")
+                                        tokens_info = ""
+                                        inp = call.get('input_tokens', 0)
+                                        out = call.get('output_tokens', 0)
+                                        if inp or out:
+                                            tokens_info = f"  |  tokens: {inp:,} in / {out:,} out"
+                                        st.text(f"Call {idx}: {call['duration']:.2f}s{tokens_info}")
 
                             if timing.get("tool_calls"):
                                 with st.expander("Tool Calls Detail"):
                                     for idx, call in enumerate(timing["tool_calls"], 1):
                                         tool_name = call.get('tool_name', call.get('name', 'unknown'))
                                         st.text(f"{tool_name}: {call['duration']:.2f}s")
+
+                            # Token Usage & Cost section
+                            token_summary = timing.get("token_summary")
+                            if token_summary:
+                                st.divider()
+                                model_label = token_summary.get("model", "unknown")
+                                st.markdown(f"**Token Usage & Cost** ({model_label})")
+                                totals = token_summary.get("totals", {})
+                                tc1, tc2, tc3, tc4 = st.columns(4)
+                                with tc1:
+                                    st.metric("Total Input Tokens", f"{totals.get('input_tokens', 0):,}")
+                                with tc2:
+                                    st.metric("Total Output Tokens", f"{totals.get('output_tokens', 0):,}")
+                                with tc3:
+                                    st.metric("Total Tokens", f"{totals.get('total_tokens', 0):,}")
+                                with tc4:
+                                    st.metric("Total Cost", f"${totals.get('cost_usd', 0):.6f}")
+
 
             st.markdown("---")
 
